@@ -61,20 +61,45 @@ A comprehensive library of **28 skills** for [Claude Code](https://claude.ai/cla
 ```bash
 git clone https://github.com/mickeyyaya/refactoring-skills-claude-code.git
 cd refactoring-skills-claude-code
-./install.sh
+./install.sh            # Claude Code (default)
 ```
 
-This copies all 28 skills into `~/.claude/skills/` where Claude Code automatically discovers them.
+### Multi-Platform Support
 
-### Manual / Per-Project Install
+Works with **any LLM CLI tool**. The installer adapts skills to each platform's native format:
 
 ```bash
-# All skills globally
-cp -r skills/* ~/.claude/skills/
-
-# Specific project only
-cp -r skills/* /path/to/your/project/.claude/skills/
+./install.sh --claude        # ~/.claude/skills/ (default)
+./install.sh --cursor        # .cursorrules + .cursor/rules/
+./install.sh --copilot       # .github/copilot-instructions.md
+./install.sh --aider         # .aider-rules.md + .aider.conf.yml
+./install.sh --windsurf      # .windsurfrules
+./install.sh --codex         # AGENTS.md (OpenAI Codex CLI)
+./install.sh --gemini        # GEMINI.md (Google Gemini CLI)
+./install.sh --continue      # .continue/rules/
+./install.sh --export        # Print to stdout (pipe to any file)
+./install.sh --all           # Install to all detected platforms
 ```
+
+Target a specific project directory:
+
+```bash
+./install.sh --copilot --project-dir ~/my-project
+./install.sh --all --project-dir ~/my-project
+```
+
+| Platform | Target File(s) | Format |
+|----------|----------------|--------|
+| Claude Code | `~/.claude/skills/{name}/SKILL.md` | Individual Markdown files |
+| Cursor | `.cursorrules` + `.cursor/rules/*.md` | Concatenated + individual |
+| GitHub Copilot | `.github/copilot-instructions.md` | Single concatenated file |
+| Aider | `.aider-rules.md` | Single concatenated file |
+| Windsurf | `.windsurfrules` | Single concatenated file |
+| OpenAI Codex | `AGENTS.md` | Single concatenated file |
+| Gemini CLI | `GEMINI.md` | Single concatenated file |
+| Continue.dev | `.continue/rules/*.md` | Individual Markdown files |
+
+See [`adapters/FORMATS.md`](adapters/FORMATS.md) for details on each platform's format.
 
 ## How It Works
 

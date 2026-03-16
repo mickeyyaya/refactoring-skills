@@ -1,33 +1,233 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SKILLS_DIR="${HOME}/.claude/skills"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SOURCE_DIR="${SCRIPT_DIR}/skills"
+SKILLS_DIR="${SCRIPT_DIR}/skills"
+TARGET=""
+PROJECT_DIR="."
 
-if [ ! -d "$SOURCE_DIR" ]; then
-  echo "Error: skills directory not found at ${SOURCE_DIR}"
+usage() {
+  cat <<'USAGE'
+Usage: ./install.sh [--target] [--project-dir PATH]
+
+Targets (pick one):
+  --claude       Install to ~/.claude/skills/ (default)
+  --cursor       Generate .cursorrules in project dir
+  --copilot      Generate .github/copilot-instructions.md in project dir
+  --aider        Generate .aider-rules.md in project dir
+  --windsurf     Generate .windsurfrules in project dir
+  --codex        Generate AGENTS.md in project dir
+  --gemini       Generate GEMINI.md in project dir
+  --continue     Install to .continue/rules/ in project dir
+  --export       Print all rules to stdout
+  --all          Install to all detected platforms
+
+Options:
+  --project-dir  Target project directory (default: current dir)
+  --help         Show this message
+
+Examples:
+  ./install.sh                          # Install to Claude Code (default)
+  ./install.sh --cursor                 # Generate .cursorrules
+  ./install.sh --copilot --project-dir ~/myapp
+  ./install.sh --all --project-dir ~/myapp
+  ./install.sh --export > my-rules.md   # Export for any LLM
+USAGE
+  exit 0
+}
+
+# Parse args
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --claude)    TARGET="${TARGET} claude" ;;
+    --cursor)    TARGET="${TARGET} cursor" ;;
+    --copilot)   TARGET="${TARGET} copilot" ;;
+    --aider)     TARGET="${TARGET} aider" ;;
+    --windsurf)  TARGET="${TARGET} windsurf" ;;
+    --codex)     TARGET="${TARGET} codex" ;;
+    --gemini)    TARGET="${TARGET} gemini" ;;
+    --continue)  TARGET="${TARGET} continue" ;;
+    --export)    TARGET="export" ;;
+    --all)       TARGET="claude cursor copilot aider windsurf codex gemini" ;;
+    --project-dir) shift; PROJECT_DIR="$1" ;;
+    --help|-h)   usage ;;
+    *)           echo "Unknown option: $1"; usage ;;
+  esac
+  shift
+done
+
+# Default to Claude Code
+TARGET="${TARGET:-claude}"
+
+if [ ! -d "$SKILLS_DIR" ]; then
+  echo "Error: skills directory not found at ${SKILLS_DIR}"
   exit 1
 fi
 
-mkdir -p "$SKILLS_DIR"
+# Collect all skill files sorted by name
+collect_skills() {
+  find "$SKILLS_DIR" -name "SKILL.md" -type f | sort
+}
 
-installed=0
-for skill_dir in "$SOURCE_DIR"/*/; do
-  skill_name=$(basename "$skill_dir")
-  target="${SKILLS_DIR}/${skill_name}"
+# Strip YAML frontmatter from a file, output just the content
+strip_frontmatter() {
+  awk 'BEGIN{fm=0} /^---$/{fm++; next} fm>=2{print} fm<2 && fm==0{print}' "$1"
+}
 
-  if [ -d "$target" ] && [ -f "${target}/SKILL.md" ]; then
-    echo "Updating: ${skill_name}"
-  else
-    echo "Installing: ${skill_name}"
+# Extract a frontmatter field value
+get_frontmatter() {
+  local file="$1" field="$2"
+  sed -n '/^---$/,/^---$/p' "$file" | grep "^${field}:" | sed "s/^${field}:[[:space:]]*//"
+}
+
+# Build a concatenated document with category headers
+build_concatenated() {
+  local header="$1"
+  echo "$header"
+  echo ""
+  echo "# Refactoring & Design Pattern Skills"
+  echo ""
+  echo "A comprehensive library of coding best practices, refactoring techniques,"
+  echo "design patterns, and code review guidelines for software development."
+  echo "Covers TypeScript, Python, Java, Go, Rust, and C++."
+  echo ""
+
+  local current_category=""
+  for skill_file in $(collect_skills); do
+    local skill_dir
+    skill_dir=$(basename "$(dirname "$skill_file")")
+    local name
+    name=$(get_frontmatter "$skill_file" "name")
+    name="${name:-$skill_dir}"
+
+    echo "---"
+    echo ""
+    echo "## ${name}"
+    echo ""
+    strip_frontmatter "$skill_file"
+    echo ""
+  done
+}
+
+# ─── Claude Code ───
+install_claude() {
+  local dest="${HOME}/.claude/skills"
+  mkdir -p "$dest"
+  local count=0
+  for skill_dir in "$SKILLS_DIR"/*/; do
+    local skill_name
+    skill_name=$(basename "$skill_dir")
+    mkdir -p "${dest}/${skill_name}"
+    cp "${skill_dir}/SKILL.md" "${dest}/${skill_name}/SKILL.md"
+    count=$((count + 1))
+  done
+  echo "[claude] ${count} skills installed to ${dest}/"
+}
+
+# ─── Cursor ───
+install_cursor() {
+  local dest="${PROJECT_DIR}"
+  # Newer Cursor supports .cursor/rules/
+  local rules_dir="${dest}/.cursor/rules"
+  mkdir -p "$rules_dir"
+  local count=0
+  for skill_dir in "$SKILLS_DIR"/*/; do
+    local skill_name
+    skill_name=$(basename "$skill_dir")
+    cp "${skill_dir}/SKILL.md" "${rules_dir}/${skill_name}.md"
+    count=$((count + 1))
+  done
+  # Also generate legacy .cursorrules as concatenated file
+  build_concatenated "# Cursor Rules — Refactoring & Design Patterns" > "${dest}/.cursorrules"
+  echo "[cursor] ${count} rules installed to ${rules_dir}/ + .cursorrules"
+}
+
+# ─── GitHub Copilot ───
+install_copilot() {
+  local dest="${PROJECT_DIR}/.github"
+  mkdir -p "$dest"
+  build_concatenated "# GitHub Copilot Instructions — Refactoring & Design Patterns" \
+    > "${dest}/copilot-instructions.md"
+  echo "[copilot] Generated ${dest}/copilot-instructions.md"
+}
+
+# ─── Aider ───
+install_aider() {
+  local dest="${PROJECT_DIR}"
+  build_concatenated "# Aider Rules — Refactoring & Design Patterns" \
+    > "${dest}/.aider-rules.md"
+  # Create or update .aider.conf.yml to reference the rules file
+  if [ ! -f "${dest}/.aider.conf.yml" ]; then
+    cat > "${dest}/.aider.conf.yml" <<YAML
+# Aider configuration — auto-generated by refactoring-skills installer
+read:
+  - .aider-rules.md
+YAML
   fi
+  echo "[aider] Generated ${dest}/.aider-rules.md"
+}
 
-  mkdir -p "$target"
-  cp "${skill_dir}/SKILL.md" "${target}/SKILL.md"
-  installed=$((installed + 1))
+# ─── Windsurf ───
+install_windsurf() {
+  local dest="${PROJECT_DIR}"
+  build_concatenated "# Windsurf Rules — Refactoring & Design Patterns" \
+    > "${dest}/.windsurfrules"
+  echo "[windsurf] Generated ${dest}/.windsurfrules"
+}
+
+# ─── Codex / OpenAI CLI ───
+install_codex() {
+  local dest="${PROJECT_DIR}"
+  build_concatenated "# AGENTS.md — Refactoring & Design Patterns" \
+    > "${dest}/AGENTS.md"
+  echo "[codex] Generated ${dest}/AGENTS.md"
+}
+
+# ─── Gemini CLI ───
+install_gemini() {
+  local dest="${PROJECT_DIR}"
+  build_concatenated "# GEMINI.md — Refactoring & Design Patterns" \
+    > "${dest}/GEMINI.md"
+  echo "[gemini] Generated ${dest}/GEMINI.md"
+}
+
+# ─── Continue.dev ───
+install_continue() {
+  local dest="${PROJECT_DIR}/.continue/rules"
+  mkdir -p "$dest"
+  local count=0
+  for skill_dir in "$SKILLS_DIR"/*/; do
+    local skill_name
+    skill_name=$(basename "$skill_dir")
+    cp "${skill_dir}/SKILL.md" "${dest}/${skill_name}.md"
+    count=$((count + 1))
+  done
+  echo "[continue] ${count} rules installed to ${dest}/"
+}
+
+# ─── Export ───
+do_export() {
+  build_concatenated "# Refactoring & Design Pattern Rules"
+}
+
+# ─── Main ───
+echo "Refactoring Skills Installer"
+echo "============================"
+echo ""
+
+for target in $TARGET; do
+  case $target in
+    claude)   install_claude ;;
+    cursor)   install_cursor ;;
+    copilot)  install_copilot ;;
+    aider)    install_aider ;;
+    windsurf) install_windsurf ;;
+    codex)    install_codex ;;
+    gemini)   install_gemini ;;
+    continue) install_continue ;;
+    export)   do_export ;;
+  esac
 done
 
 echo ""
-echo "Done. ${installed} refactoring skills installed to ${SKILLS_DIR}/"
-echo "Restart Claude Code to pick up the new skills."
+echo "Done. Restart your LLM tool to pick up the new rules."
