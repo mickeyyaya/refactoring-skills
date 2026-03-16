@@ -5,35 +5,25 @@ description: Use when reviewing code for SOLID principle violations and clean co
 
 # Review: SOLID Principles and Clean Code
 
-## Overview
-
-This skill guides code review through a structured lens of SOLID principles and clean code practices. Each section follows the same pattern: what the principle means, what violations look like, red flags to scan for in a review, and the fix strategy to recommend.
-
 ## When to Use
 
-- During pull request review when code smells are present
+- Pull request review when code smells are present
 - After detecting Bloater or Change Preventer smells (see `detect-code-smells`)
-- When a class or module is hard to test in isolation
-- When a change in one place forces changes in many others
-- When onboarding new contributors who need a review checklist
+- A class or module is hard to test in isolation
+- A change in one place forces changes in many others
 
 ---
 
 ## SOLID Principles
 
-### 1. SRP — Single Responsibility Principle
+### SRP -- Single Responsibility Principle
 
-**Definition:** A class should have only one reason to change. One class = one actor = one responsibility.
+One class = one reason to change.
 
-**Violation Symptoms:**
-- Class name contains "And", "Or", "Manager", "Handler", "Helper", "Utils"
-- Class has 10+ public methods spanning unrelated domains
-- A change to one feature forces re-testing an entirely unrelated feature
-- The class has many unrelated imports
+**Red Flags:** Class name contains "Manager"/"Utils", 10+ public methods spanning unrelated domains, unrelated imports.
 
-**Review Red Flags:**
 ```typescript
-// Red flag: one class handles persistence, formatting, and email
+// Violation: persistence, formatting, and email in one class
 class UserManager {
   save(user: User): void { /* DB write */ }
   formatReport(user: User): string { /* HTML formatting */ }
@@ -41,243 +31,155 @@ class UserManager {
 }
 ```
 
-**Fix Strategy:** Extract Class — split into `UserRepository`, `UserReportFormatter`, `UserEmailService`. Cross-reference: `refactor-moving-features` → Move Method / Extract Class.
+**Fix:** Extract Class -> `UserRepository`, `UserReportFormatter`, `UserEmailService`. See `refactor-moving-features`.
 
 ---
 
-### 2. OCP — Open/Closed Principle
+### OCP -- Open/Closed Principle
 
-**Definition:** Software entities should be open for extension but closed for modification. Add new behavior by adding new code, not by changing existing code.
+Open for extension, closed for modification.
 
-**Violation Symptoms:**
-- A `switch` or `if/else if` chain on a type tag that must grow with every new type
-- Adding a new feature requires editing an existing, tested class
-- Core logic files are frequently touched in unrelated PRs
+**Red Flags:** `switch`/`if-else` chain on type tag that grows with each new type, adding features requires editing existing tested classes.
 
-**Review Red Flags:**
 ```typescript
-// Red flag: every new shape requires modifying this function
+// Violation: every new shape requires modifying this function
 function area(shape: Shape): number {
   if (shape.type === "circle") return Math.PI * shape.radius ** 2;
   if (shape.type === "square") return shape.side ** 2;
-  // new shape requires editing here
 }
 ```
 
-**Fix Strategy:** Apply the Strategy pattern or polymorphism. Define an interface (`Shape.area()`) and let each concrete type implement it. New shapes extend without touching existing code. Cross-reference: `design-patterns-behavioral` → Strategy; `design-patterns-creational-structural` → Factory Method.
+**Fix:** Interface with polymorphism (`Shape.area()`). See `refactor-simplifying-conditionals`, `design-patterns-behavioral` (Strategy).
 
 ---
 
-### 3. LSP — Liskov Substitution Principle
+### LSP -- Liskov Substitution Principle
 
-**Definition:** Subtypes must be fully substitutable for their base types without altering the correctness of the program. A caller using the base type must not need to know which subtype it has.
+Subtypes must be substitutable for their base types without altering correctness.
 
-**Violation Symptoms:**
-- A subclass overrides a method to throw `NotImplemented` or `UnsupportedOperation`
-- Caller code contains `instanceof` checks to adjust behavior per subtype
-- A subclass narrows preconditions or widens postconditions of the parent
+**Red Flags:** Subclass overrides with `NotImplemented`, `instanceof` checks in business logic, subclass narrows preconditions.
 
-**Review Red Flags:**
 ```typescript
-// Red flag: Square narrows Rectangle's contract
-class Rectangle {
-  setWidth(w: number): void { this.width = w; }
-  setHeight(h: number): void { this.height = h; }
-}
+// Violation: Square breaks Rectangle contract
 class Square extends Rectangle {
-  setWidth(w: number): void { this.width = w; this.height = w; } // breaks Rectangle contract
-  setHeight(h: number): void { this.width = h; this.height = h; }
+  setWidth(w: number): void { this.width = w; this.height = w; }
 }
 
-// Red flag: instanceof checks signal LSP violation
+// Violation: instanceof checks
 function process(animal: Animal): void {
   if (animal instanceof Dog) { /* dog-specific */ }
-  if (animal instanceof Cat) { /* cat-specific */ }
 }
 ```
 
-**Fix Strategy:** Replace Inheritance with Delegation or restructure the hierarchy so each subtype truly IS-A base type. Cross-reference: `refactor-generalization` → Replace Inheritance with Delegation.
+**Fix:** Replace Inheritance with Delegation or restructure hierarchy. See `refactor-generalization`.
 
 ---
 
-### 4. ISP — Interface Segregation Principle
+### ISP -- Interface Segregation Principle
 
-**Definition:** Clients should not be forced to depend on interfaces they do not use. Prefer many small, focused interfaces over one large general-purpose interface.
+Clients should not depend on interfaces they don't use.
 
-**Violation Symptoms:**
-- An interface has methods that some implementations leave empty or throw errors
-- A class implements an interface but only uses 2 of its 8 methods
-- Changing an unused method in an interface forces recompilation or changes across unrelated classes
+**Red Flags:** Implementations that throw `"Not supported"`, class implements interface but uses only 2 of 8 methods.
 
-**Review Red Flags:**
 ```typescript
-// Red flag: fat interface forces irrelevant implementations
-interface Worker {
-  work(): void;
-  eat(): void;    // robots don't eat
-  sleep(): void;  // robots don't sleep
-}
-
+// Violation: robots don't eat or sleep
 class RobotWorker implements Worker {
-  work(): void { /* real implementation */ }
-  eat(): void { throw new Error("Not supported"); }   // ISP violation
-  sleep(): void { throw new Error("Not supported"); } // ISP violation
+  work(): void { /* real */ }
+  eat(): void { throw new Error("Not supported"); }
+  sleep(): void { throw new Error("Not supported"); }
 }
 ```
 
-**Fix Strategy:** Extract Interface — split into `Workable`, `Feedable`, `Restable`. Let classes implement only the interfaces relevant to them. Cross-reference: `refactor-generalization` → Extract Interface.
+**Fix:** Split into `Workable`, `Feedable`, `Restable`. See `refactor-generalization` (Extract Interface).
 
 ---
 
-### 5. DIP — Dependency Inversion Principle
+### DIP -- Dependency Inversion Principle
 
-**Definition:** High-level modules should not depend on low-level modules. Both should depend on abstractions. Abstractions should not depend on details; details should depend on abstractions.
+High-level modules depend on abstractions, not concrete implementations.
 
-**Violation Symptoms:**
-- Business logic instantiates concrete classes with `new ConcreteService()`
-- No dependency injection — dependencies are hardcoded inside constructors or methods
-- Unit tests require real databases, HTTP clients, or file systems to run
-- Swapping an implementation requires editing the business logic file
-
-**Review Red Flags:**
-```typescript
-// Red flag: high-level OrderService depends on concrete MySQLRepository
-class OrderService {
-  private repo = new MySQLOrderRepository(); // hardcoded concrete
-
-  placeOrder(order: Order): void {
-    this.repo.save(order); // impossible to test without MySQL
-  }
-}
-```
-
-**Fix Strategy:** Introduce an abstraction (`OrderRepository` interface) and inject the concrete implementation via the constructor. Cross-reference: `design-patterns-creational-structural` → Factory, Abstract Factory; use DI containers when the framework supports it.
+**Red Flags:** `new ConcreteService()` in business logic, tests require real databases/HTTP, swapping implementations requires editing business logic.
 
 ```typescript
-// Fixed: depend on abstraction, inject concrete
-class OrderService {
-  constructor(private readonly repo: OrderRepository) {}
-
-  placeOrder(order: Order): void {
-    this.repo.save(order); // testable with a mock
-  }
-}
+// Violation                          // Fixed
+class OrderService {                  class OrderService {
+  private repo = new MySQLRepo();       constructor(private readonly repo: OrderRepository) {}
+  placeOrder(order: Order): void {      placeOrder(order: Order): void {
+    this.repo.save(order);                this.repo.save(order); // testable with mock
+  }                                     }
+}                                     }
 ```
+
+**Fix:** Introduce abstraction interface, inject via constructor. See `design-patterns-creational-structural` (Factory, DI).
 
 ---
 
 ## Clean Code Practices
 
-### DRY — Don't Repeat Yourself
+### DRY -- Don't Repeat Yourself
 
-**Definition:** Every piece of knowledge should have a single, authoritative representation in the system. Duplication is not just copy-paste — it is also parallel data structures, divergent API wrappers, and repeated business rules scattered across modules.
+**Red Flags:** Identical code blocks in multiple files, same validation in 3+ places, same business rule in frontend and backend.
 
-**Violation Symptoms:**
-- Identical or near-identical code blocks in multiple files
-- The same validation rule implemented in 3 different places
-- Multiple functions that do the same thing but with slightly different variable names
+**Fix:** Extract Method/Class for code duplication. For knowledge duplication, identify canonical owner and delegate. See `refactor-composing-methods`.
 
-**Review Red Flags:** Scan for copy-paste code, near-duplicate test helpers, and business rules that exist in both the frontend and backend without a shared source of truth.
+### KISS -- Keep It Simple
 
-**Fix Strategy:** Extract Method / Extract Class for code duplication. For knowledge duplication (e.g., a business rule), identify the canonical owner and have all others delegate to it. Cross-reference: `refactor-composing-methods` → Extract Method.
+**Red Flags:** 5-level class hierarchy for a map-solvable problem, design patterns where a plain function suffices.
 
----
+**Fix:** Ask "what is the simplest change that works?" Collapse unnecessary layers. See `refactor-composing-methods` (Substitute Algorithm).
 
-### KISS — Keep It Simple
+### YAGNI -- You Aren't Gonna Need It
 
-**Definition:** Prefer the simplest solution that correctly solves the problem. Complexity is a liability — every additional abstraction must earn its place.
+**Red Flags:** Abstract classes with one implementation, feature flags never enabled, parameters always passed as `null`.
 
-**Violation Symptoms:**
-- A 5-level class hierarchy for a problem that could use a map
-- Generics, abstractions, or design patterns applied where a plain function would suffice
-- Code that is difficult to explain to a junior developer in one sentence
+**Fix:** Delete unused code. Git history preserves it if needed later. See `refactor-generalization` (Collapse Hierarchy).
 
-**Review Red Flags:** Over-engineered abstractions, premature generalization, excessive configuration objects for simple behaviors.
+### Law of Demeter
 
-**Fix Strategy:** Ask "What is the simplest change that makes this work?" Collapse unnecessary layers. Cross-reference: `refactor-composing-methods` → Substitute Algorithm (replace complex algorithm with simpler one).
+**Red Flags:** `a.getB().getC().doSomething()`, business logic knowing remote object internals.
 
----
-
-### YAGNI — You Aren't Gonna Need It
-
-**Definition:** Do not add functionality until it is necessary. Build for today's requirements, not hypothetical future ones.
-
-**Violation Symptoms:**
-- Unused configuration parameters "for future extensibility"
-- Abstract base classes with only one concrete implementation
-- Feature flags that wrap code never enabled in production
-- Method parameters that are always passed as `null` or ignored
-
-**Review Red Flags:** Code that exists to handle cases that "might come up someday." Ask: is this used in a real test or production flow today?
-
-**Fix Strategy:** Delete unused code. If it might be needed later, it will be in git history. Cross-reference: `refactor-generalization` → Collapse Hierarchy (when premature abstractions exist).
-
----
-
-### Law of Demeter — Principle of Least Knowledge
-
-**Definition:** A method should only call methods on: itself, its parameters, objects it creates, and its direct component objects. Do not reach through chains of objects.
-
-**Violation Symptoms:**
-- Method chains like `a.getB().getC().doSomething()`
-- Business logic that knows the internal structure of remote objects
-- Changes in a distant object's internals cascade through many files
-
-**Review Red Flags:**
-```typescript
-// Red flag: OrderService knows too much about customer internals
-class OrderService {
-  notify(order: Order): void {
-    const city = order.getCustomer().getAddress().getCity(); // chain!
-    mailer.send(city);
-  }
-}
-```
-
-**Fix Strategy:** Add a method to the intermediate object that provides what the caller actually needs (`order.getCustomerCity()`), hiding the internal chain. Cross-reference: `refactor-moving-features` → Hide Delegate.
+**Fix:** Add method on intermediate object (`order.getCustomerCity()`). See `refactor-moving-features` (Hide Delegate).
 
 ---
 
 ## Review Checklist
 
-Use this checklist during pull request review. Mark each item PASS / FAIL / N/A.
-
 ### SOLID
 
-- [ ] **SRP** — Each class has a single, clearly named responsibility. No "Manager" or "Utils" doing multiple jobs.
-- [ ] **OCP** — New behavior is added via new classes/functions, not by modifying existing ones. No open `switch` on type tags.
-- [ ] **LSP** — Subclasses honor the contract of their parent. No `instanceof` in business logic. No `NotImplemented` overrides.
-- [ ] **ISP** — Interfaces are focused. No implementation throws errors for methods it doesn't support.
-- [ ] **DIP** — Business logic depends on abstractions. Concrete types are injected, not instantiated inline.
+- [ ] **SRP** -- Each class has a single, clearly named responsibility
+- [ ] **OCP** -- New behavior added via new classes, not modifying existing ones
+- [ ] **LSP** -- Subclasses honor parent contract. No `instanceof` or `NotImplemented`
+- [ ] **ISP** -- Interfaces are focused. No unsupported-method errors
+- [ ] **DIP** -- Business logic depends on abstractions. Concrete types injected
 
 ### Clean Code
 
-- [ ] **DRY** — No duplicated business rules or copy-pasted logic blocks. Each concept has one home.
-- [ ] **KISS** — The simplest correct solution is used. No premature abstractions or unnecessary generics.
-- [ ] **YAGNI** — No unused parameters, dead code, or "future-proof" features without active use.
-- [ ] **Demeter** — No method chains longer than 2 levels. Caller does not reach into the internals of strangers.
+- [ ] **DRY** -- No duplicated business rules or copy-pasted logic
+- [ ] **KISS** -- Simplest correct solution. No premature abstractions
+- [ ] **YAGNI** -- No unused parameters, dead code, or speculative features
+- [ ] **Demeter** -- No chains longer than 2 levels
 
 ### General Quality
 
-- [ ] Functions are under 20 lines (see `refactor-composing-methods` if not)
-- [ ] Files are under 400 lines
-- [ ] No mutation of parameters (see `refactor-composing-methods` → Remove Assignments to Parameters)
-- [ ] Error cases are explicitly handled — no silent swallows
+- [ ] Functions under 20 lines (see `refactor-composing-methods`)
+- [ ] Files under 400 lines
+- [ ] No mutation of parameters
+- [ ] Error cases explicitly handled
 - [ ] New code has corresponding unit tests
 
 ---
 
-## Common Violations at a Glance
+## Violations at a Glance
 
 | Principle | Fastest Red Flag | Primary Fix |
 |-----------|-----------------|-------------|
 | SRP | Class name has "And" or "Manager" | Extract Class |
 | OCP | `switch (type)` on a growing enum | Strategy pattern |
 | LSP | `instanceof` check in caller | Replace Inheritance with Delegation |
-| ISP | `throw new Error("Not supported")` in interface impl | Extract Interface |
+| ISP | `throw new Error("Not supported")` | Extract Interface |
 | DIP | `new ConcreteClass()` in business logic | Constructor injection |
 | DRY | Identical logic blocks in 2+ files | Extract Method / Extract Class |
-| KISS | Multi-level hierarchy for a simple lookup | Collapse / simplify |
+| KISS | Multi-level hierarchy for simple lookup | Collapse / simplify |
 | YAGNI | Parameter always passed as `null` | Remove parameter |
 | Demeter | `a.getB().getC().doSomething()` | Hide Delegate |
 
@@ -287,8 +189,8 @@ Use this checklist during pull request review. Mark each item PASS / FAIL / N/A.
 
 | Topic | Related Skill |
 |-------|--------------|
-| Detecting the code smells that signal violations | `detect-code-smells` |
+| Detecting code smells that signal violations | `detect-code-smells` |
 | Extract Method, Extract Variable, Remove Assignments to Parameters | `refactor-composing-methods` |
 | Extract Class, Move Method, Hide Delegate | `refactor-moving-features` |
-| Extract Interface, Replace Inheritance with Delegation, Collapse Hierarchy | `refactor-generalization` |
-| Strategy pattern (OCP fix), Factory / Abstract Factory (DIP fix) | `design-patterns-behavioral`, `design-patterns-creational-structural` |
+| Extract Interface, Replace Inheritance with Delegation | `refactor-generalization` |
+| Strategy (OCP fix), Factory (DIP fix) | `design-patterns-behavioral`, `design-patterns-creational-structural` |

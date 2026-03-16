@@ -7,36 +7,35 @@ description: Use when methods are too long, contain duplicate code, or have comp
 
 ## Overview
 
-These 9 techniques break down complex methods into smaller, more readable pieces and eliminate code duplication. They are the most frequently used refactoring techniques and the first line of defense against Bloater smells.
+These 9 techniques break down complex methods into smaller, readable pieces and eliminate duplication. Most frequently used refactoring techniques and the first defense against Bloater smells.
 
 ## When to Use
 
 - Method exceeds ~20 lines
-- Method has comments explaining sections (each section should be its own method)
-- Same code block appears in multiple places
-- Complex expressions are hard to understand at a glance
+- Comments explaining sections (each should be its own method)
+- Same code block in multiple places
+- Complex expressions hard to understand at a glance
 - Temporary variables accumulate and obscure logic
-- A method does too much to be replaced by simpler extraction
 
 ## Quick Reference
 
-| Technique | Problem | Solution | Key Steps |
-|-----------|---------|----------|-----------|
-| Extract Method | Code fragment that can be grouped | Move fragment into a named method | 1. Create method 2. Copy code 3. Pass needed locals as params 4. Replace original with call |
-| Inline Method | Method body is as clear as its name | Replace calls with method body | 1. Check not polymorphic 2. Find all calls 3. Replace with body 4. Delete method |
-| Extract Variable | Complex expression hard to understand | Put expression result in a descriptive variable | 1. Create variable 2. Replace expression with variable 3. Use variable everywhere the expression appears |
-| Inline Temp | Temp assigned once from simple expression | Replace temp references with the expression | 1. Verify single assignment 2. Replace all reads with expression 3. Delete temp |
-| Replace Temp with Query | Temp holds result of an expression | Extract expression into a method | 1. Extract expression to method 2. Replace temp with method call 3. Remove temp declaration |
-| Split Temporary Variable | Temp assigned more than once (not a loop var) | Create separate variable for each assignment | 1. Rename first assignment 2. Make it const/final 3. Repeat for each reassignment |
-| Remove Assignments to Parameters | Method assigns to its parameters | Use a local variable instead | 1. Create local variable 2. Replace parameter assignments with local 3. Immutability preserved |
-| Replace Method with Method Object | Long method with intertwined local variables that prevent extraction | Turn method into its own class | 1. Create class with same params as method 2. Move locals to fields 3. Extract sub-methods freely |
-| Substitute Algorithm | Algorithm can be replaced with a clearer one | Replace the body with the better algorithm | 1. Write new algorithm 2. Run tests 3. Replace old with new |
+| Technique | Problem | Solution |
+|-----------|---------|----------|
+| Extract Method | Code fragment that can be grouped | Move into a named method |
+| Inline Method | Method body is as clear as its name | Replace calls with body |
+| Extract Variable | Complex expression hard to understand | Assign to descriptive variable |
+| Inline Temp | Temp assigned once from simple expression | Replace references with expression |
+| Replace Temp with Query | Temp holds reusable expression result | Extract to method, replace temp with call |
+| Split Temporary Variable | Temp assigned more than once (not loop var) | Separate variable per assignment |
+| Remove Assignments to Parameters | Method assigns to its parameters | Use a local variable instead |
+| Replace Method with Method Object | Tangled locals prevent extraction | Turn method into its own class |
+| Substitute Algorithm | Algorithm replaceable with clearer one | Swap the body |
 
 ## Techniques in Detail
 
 ### 1. Extract Method
 
-The most important refactoring technique. When in doubt, extract.
+The most important refactoring. When in doubt, extract.
 
 **Before:**
 ```typescript
@@ -83,18 +82,11 @@ function printDetails(invoice: Invoice, outstanding: number): void {
 }
 ```
 
-**Steps:**
-1. Create a new method with a name that describes *what* it does (not *how*)
-2. Copy the extracted code into the new method
-3. Scan for local variables — pass as parameters or return as results
-4. Replace original code with a call to the new method
-5. Run tests
-
 **Smells fixed:** Long Method, Duplicate Code, Comments (excessive)
 
 ### 2. Inline Method
 
-The reverse of Extract Method — use when the method body is already perfectly clear.
+Reverse of Extract Method -- use when the body is already perfectly clear.
 
 **Before:**
 ```typescript
@@ -113,13 +105,6 @@ function getRating(driver: Driver): number {
   return driver.numberOfLateDeliveries > 5 ? 2 : 1;
 }
 ```
-
-**Steps:**
-1. Check that the method isn't polymorphic (not overridden in subclasses)
-2. Find all callers
-3. Replace each call with the method body
-4. Delete the method
-5. Run tests
 
 ### 3. Extract Variable
 
@@ -142,38 +127,27 @@ function price(order: Order): number {
 }
 ```
 
-**Smells fixed:** Long Method (complex expressions within)
-
 ### 4. Inline Temp / Replace Temp with Query
 
-These two work together. Inline Temp removes a trivial temp; Replace Temp with Query promotes a meaningful expression to a reusable method.
+Inline Temp removes a trivial temp; Replace Temp with Query promotes a meaningful expression to a reusable method.
 
-**Replace Temp with Query — Before:**
+**Replace Temp with Query:**
 ```typescript
-function calculateTotal(order: Order): number {
-  const basePrice = order.quantity * order.itemPrice;
-  if (basePrice > 1000) {
-    return basePrice * 0.95;
-  }
-  return basePrice * 0.98;
-}
-```
+// Before
+const basePrice = order.quantity * order.itemPrice;
+if (basePrice > 1000) return basePrice * 0.95;
+return basePrice * 0.98;
 
-**After:**
-```typescript
-function calculateTotal(order: Order): number {
-  if (basePrice(order) > 1000) {
-    return basePrice(order) * 0.95;
-  }
-  return basePrice(order) * 0.98;
-}
+// After
+if (basePrice(order) > 1000) return basePrice(order) * 0.95;
+return basePrice(order) * 0.98;
 
 function basePrice(order: Order): number {
   return order.quantity * order.itemPrice;
 }
 ```
 
-**When to use which:** If the expression is trivial and used once → Inline Temp. If the expression is meaningful and reusable → Replace Temp with Query.
+**Rule:** Trivial, used once -> Inline Temp. Meaningful and reusable -> Replace Temp with Query.
 
 ### 5. Split Temporary Variable
 
@@ -193,11 +167,9 @@ const area = height * width;
 console.log(area);
 ```
 
-**Smells fixed:** Confusing variable reuse — each variable should have exactly one responsibility.
-
 ### 6. Remove Assignments to Parameters
 
-Critical for immutability (aligns with coding standards).
+Critical for immutability.
 
 **Before:**
 ```typescript
@@ -248,7 +220,6 @@ class PriceCalculator {
     return this.primaryBasePrice + this.secondaryBasePrice + this.tertiaryBasePrice;
   }
 
-  // Now you can freely extract methods since fields replace locals
   private calculatePrimary(): void { /* ... */ }
   private calculateSecondary(): void { /* ... */ }
   private calculateTertiary(): void { /* ... */ }
@@ -256,8 +227,6 @@ class PriceCalculator {
 ```
 
 ### 8. Substitute Algorithm
-
-Replace an algorithm with a simpler, clearer one.
 
 **Before:**
 ```typescript
@@ -316,6 +285,6 @@ digraph composing {
 |---------|-----|
 | Extracting methods that are too small (single-line getters) | Only extract when the name adds clarity beyond the code itself |
 | Naming extracted methods by implementation (`calcStep1`) | Name by intent (`calculateDiscount`) |
-| Extracting but creating Long Parameter Lists | If extraction needs 4+ params, consider Extract Class or Parameter Object |
-| Inlining methods that are actually providing useful abstraction | Only inline when the body is as clear as the name |
+| Extracting but creating Long Parameter Lists | If 4+ params needed, consider Extract Class or Parameter Object |
+| Inlining methods that provide useful abstraction | Only inline when the body is as clear as the name |
 | Forgetting to run tests after each extraction | Every refactoring step should be followed by a test run |

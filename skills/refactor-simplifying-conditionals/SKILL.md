@@ -7,29 +7,28 @@ description: Use when conditional logic is complex, nested, duplicated, or uses 
 
 ## Overview
 
-These 8 techniques flatten, clarify, and eliminate conditional logic. Complex conditionals are one of the biggest sources of bugs and confusion. The goal: make each branch's purpose obvious, eliminate duplication across branches, and replace type-switching with polymorphism.
+These 8 techniques flatten, clarify, and eliminate conditional logic. Complex conditionals are a major source of bugs. Goal: make each branch's purpose obvious, eliminate duplication across branches, and replace type-switching with polymorphism.
 
 ## When to Use
 
-- Nested if/else chains deeper than 2 levels
+- Nested if/else deeper than 2 levels
 - Same condition checked in multiple places
 - Switch statements on type codes that grow with each new type
-- Conditional with complex boolean expressions
-- Null checks scattered throughout the code
-- Methods with early returns mixed with deep logic
+- Complex boolean expressions
+- Null checks scattered throughout
 
 ## Quick Reference
 
 | Technique | Problem | Solution |
 |-----------|---------|----------|
 | Decompose Conditional | Complex condition with big then/else blocks | Extract condition and branches into named methods |
-| Consolidate Conditional Expression | Multiple conditions with same result | Combine into single condition with descriptive name |
-| Consolidate Duplicate Conditional Fragments | Same code in every branch | Move shared code outside the conditional |
-| Remove Control Flag | Boolean variable controls loop flow | Use `break`, `return`, or `continue` instead |
-| Replace Nested Conditionals with Guard Clauses | Deep nesting from special-case checks | Handle edge cases early with `return`, leave happy path unindented |
-| Replace Conditional with Polymorphism | Switch on type drives different behavior | Create subclass or strategy per type |
-| Introduce Null Object | Null checks repeated before using an object | Create a Null/Default implementation that does nothing |
-| Introduce Assertion | Code assumes a condition but doesn't check it | Add explicit assertion to document and enforce the assumption |
+| Consolidate Conditional | Multiple conditions with same result | Combine into single condition with descriptive name |
+| Consolidate Duplicate Fragments | Same code in every branch | Move shared code outside the conditional |
+| Remove Control Flag | Boolean controls loop flow | Use `break`, `return`, or `continue` |
+| Guard Clauses | Deep nesting from special-case checks | Handle edge cases early with `return` |
+| Replace Conditional with Polymorphism | Switch on type drives different behavior | Subclass or strategy per type |
+| Introduce Null Object | Null checks repeated before using an object | Null/Default implementation that does nothing |
+| Introduce Assertion | Code assumes a condition but doesn't check it | Explicit assertion to document and enforce |
 
 ## Techniques in Detail
 
@@ -49,10 +48,7 @@ function calculateCharge(date: Date, quantity: number, plan: Plan): number {
 **After:**
 ```typescript
 function calculateCharge(date: Date, quantity: number, plan: Plan): number {
-  if (isSummer(date)) {
-    return summerCharge(quantity, plan);
-  }
-  return regularCharge(quantity, plan);
+  return isSummer(date) ? summerCharge(quantity, plan) : regularCharge(quantity, plan);
 }
 
 function isSummer(date: Date): boolean {
@@ -96,8 +92,8 @@ function isNotEligibleForDisability(employee: Employee): boolean {
 
 ### 3. Consolidate Duplicate Conditional Fragments
 
-**Before:**
 ```typescript
+// Before
 if (isSpecialDeal) {
   total = price * 0.95;
   send();
@@ -105,48 +101,35 @@ if (isSpecialDeal) {
   total = price * 0.98;
   send();
 }
-```
 
-**After:**
-```typescript
+// After
 total = isSpecialDeal ? price * 0.95 : price * 0.98;
 send();
 ```
 
 ### 4. Remove Control Flag
 
-**Before:**
 ```typescript
-function checkSecurity(people: string[]): string {
-  let found = false;
-  let result = "";
-  for (const person of people) {
-    if (!found) {
-      if (person === "Don" || person === "John") {
-        result = person;
-        found = true;
-      }
-    }
-  }
-  return result;
-}
-```
-
-**After:**
-```typescript
-function checkSecurity(people: string[]): string {
-  for (const person of people) {
+// Before
+let found = false;
+for (const person of people) {
+  if (!found) {
     if (person === "Don" || person === "John") {
-      return person;
+      result = person; found = true;
     }
   }
-  return "";
 }
+
+// After
+for (const person of people) {
+  if (person === "Don" || person === "John") return person;
+}
+return "";
 ```
 
-### 5. Replace Nested Conditionals with Guard Clauses
+### 5. Guard Clauses
 
-One of the most impactful simplifications. Guard clauses handle edge cases early so the main logic stays flat.
+One of the most impactful simplifications. Handle edge cases early, keep main logic flat.
 
 **Before:**
 ```typescript
@@ -157,7 +140,6 @@ function getPayAmount(employee: Employee): number {
     if (employee.isRetired) {
       return retiredAmount();
     } else {
-      // compute normal pay...
       return normalPayAmount();
     }
   }
@@ -173,33 +155,27 @@ function getPayAmount(employee: Employee): number {
 }
 ```
 
-**Rule of thumb:** If both branches are part of normal behavior, use if/else. If one branch is a special case, use a guard clause (early return).
+**Rule:** If one branch is a special case, use a guard clause. If both branches are equally important, use if/else.
 
 ### 6. Replace Conditional with Polymorphism
 
-The most powerful technique — eliminates switch statements that grow with each new type.
+The most powerful technique -- eliminates switch statements that grow with each new type.
 
 **Before:**
 ```typescript
 function calculateArea(shape: Shape): number {
   switch (shape.type) {
-    case "circle":
-      return Math.PI * shape.radius ** 2;
-    case "rectangle":
-      return shape.width * shape.height;
-    case "triangle":
-      return (shape.base * shape.height) / 2;
-    default:
-      throw new Error(`Unknown shape: ${shape.type}`);
+    case "circle": return Math.PI * shape.radius ** 2;
+    case "rectangle": return shape.width * shape.height;
+    case "triangle": return (shape.base * shape.height) / 2;
+    default: throw new Error(`Unknown shape: ${shape.type}`);
   }
 }
 ```
 
 **After:**
 ```typescript
-interface Shape {
-  calculateArea(): number;
-}
+interface Shape { calculateArea(): number; }
 
 class Circle implements Shape {
   constructor(private readonly radius: number) {}
@@ -217,30 +193,17 @@ class Triangle implements Shape {
 }
 ```
 
-**When to apply:**
-- The same switch/if-else appears in multiple methods
-- Adding a new type means updating multiple switch statements
-- Each branch has substantially different logic
+**Apply when:** Same switch appears in multiple methods, new types require updating multiple switches, branches have substantially different logic.
 
-**When NOT to apply:**
-- Simple one-off conditionals
-- The condition is based on dynamic data, not type identity
-- Only one switch exists and it's unlikely to grow
+**Skip when:** Simple one-off conditionals, condition based on dynamic data not type identity, single switch unlikely to grow.
 
 ### 7. Introduce Null Object
-
-Eliminates null checks by providing a default no-op implementation.
 
 **Before:**
 ```typescript
 function getDiscount(customer: Customer | null): number {
   if (customer === null) return 0;
   return customer.getDiscount();
-}
-
-function getName(customer: Customer | null): string {
-  if (customer === null) return "occupant";
-  return customer.name;
 }
 ```
 
@@ -251,32 +214,21 @@ class NullCustomer implements Customer {
   getDiscount(): number { return 0; }
   isNull(): boolean { return true; }
 }
-
-// Now all client code just calls methods — no null checks
-function getDiscount(customer: Customer): number {
-  return customer.getDiscount();
-}
+// No null checks needed -- all client code just calls methods
 ```
 
-**Steps:**
-1. Create a subclass/implementation for the null case
-2. Override methods to provide safe default behavior
-3. Replace all null checks with the Null Object
-4. Run tests
+Only use when "do nothing" is valid behavior, not when null indicates an error.
 
 ### 8. Introduce Assertion
 
-Documents assumptions and catches violations early.
-
 ```typescript
 function calculateExpense(project: Project): number {
-  // This function assumes the project has at least one member
   console.assert(project.members.length > 0, "Project must have members");
   return project.budget / project.members.length;
 }
 ```
 
-Use assertions for conditions that should *never* be false in correct code. Use validation for user input and external data.
+Assertions for conditions that should *never* be false in correct code. Validation for user input and external data.
 
 ## Decision Flowchart
 
@@ -314,7 +266,7 @@ digraph conditionals {
 | Mistake | Fix |
 |---------|-----|
 | Replacing ALL conditionals with polymorphism | Only replace switches that appear in multiple places or will grow |
-| Guard clauses that obscure the main logic | Guard clauses are for edge cases — if all paths are equally important, use if/else |
-| Null Object that hides bugs | Null Object should only be used when "do nothing" is valid behavior, not when null indicates an error |
-| Over-decomposing simple conditions | `if (x > 0)` doesn't need extraction — only extract when the condition is non-obvious |
-| Removing control flags but introducing complex boolean expressions | Sometimes a control flag IS the clearest approach — refactor only when it simplifies |
+| Guard clauses that obscure main logic | Guard clauses are for edge cases -- if all paths are equally important, use if/else |
+| Null Object that hides bugs | Only use when "do nothing" is valid, not when null indicates an error |
+| Over-decomposing simple conditions | `if (x > 0)` doesn't need extraction |
+| Removing control flags but introducing complex booleans | Sometimes a control flag IS clearest -- refactor only when it simplifies |
