@@ -7,17 +7,17 @@ description: Use when reviewing a PR for performance regressions, when a service
 
 ## Overview
 
-Performance anti-patterns are recurring implementation mistakes that degrade throughput, latency, or resource efficiency. Unlike correctness bugs, they often go undetected in development and surface only under production load. This catalog focuses on signals a reviewer can spot in a PR without running the code.
+Performance anti-patterns are recurring mistakes that degrade throughput, latency, or resource efficiency. They often go undetected in development and surface only under production load. This catalog focuses on signals a reviewer can spot in a PR diff.
 
-Use this alongside `anti-patterns-catalog` (structural problems) and `review-code-quality-process` (review workflow). Structural anti-patterns like God Object and Spaghetti Code frequently co-occur with the patterns below because tangled code hides the hot path.
+Use alongside `anti-patterns-catalog` (structural problems) and `review-code-quality-process` (review workflow).
 
 ## When to Use
 
-- A PR touches database queries, HTTP clients, or any I/O layer
-- A service's p95 latency or memory usage has increased without obvious cause
-- Load testing reveals performance does not scale linearly with load
-- A PR introduces new loops, recursion, or collection transformations
-- A PR modifies caching logic or connection management
+- PR touches database queries, HTTP clients, or any I/O layer
+- p95 latency or memory usage increased without obvious cause
+- Load testing shows non-linear scaling
+- PR introduces loops, recursion, or collection transforms
+- PR modifies caching logic or connection management
 
 ## Quick Reference
 
@@ -42,22 +42,15 @@ Use this alongside `anti-patterns-catalog` (structural problems) and `review-cod
 
 ### N+1 Query
 
-- **Description**: A query is executed once to fetch N parent records, then once more per parent to fetch related children — producing N+1 total queries.
-- **Symptoms**:
-  - A loop body contains a function that queries the database
-  - ORM calls like `findById`, `getRelated`, or `load` appear inside `forEach`, `map`, or `for...of`
-  - Query count in logs scales linearly with list size (10 items → 11 queries, 100 items → 101 queries)
-- **Detection in Code Review**:
-  - Look for any database/ORM call nested inside a loop or array transform
-  - Check if relationships are loaded lazily by default in the ORM — lazy loading is N+1 by default
-  - In Python/SQLAlchemy: look for `session.query` inside a loop over results
-  - In TypeScript/Prisma or TypeORM: look for `findOne` / `findById` inside `Promise.all(items.map(...))`
+**Detection:** ORM/DB call nested inside a loop or array transform. Lazy-loading ORMs do this by default.
+- Python/SQLAlchemy: `session.query` inside a loop over results
+- TypeScript/Prisma/TypeORM: `findOne`/`findById` inside `Promise.all(items.map(...))`
 
 ```typescript
 // BEFORE — N+1: one query per user
 const users = await db.users.findAll();
 for (const user of users) {
-  user.orders = await db.orders.findAll({ where: { userId: user.id } }); // query per iteration
+  user.orders = await db.orders.findAll({ where: { userId: user.id } });
 }
 
 // AFTER — single JOIN query
@@ -66,21 +59,13 @@ const users = await db.users.findAll({
 });
 ```
 
-- **Fix Strategy**: Use JOIN-based eager loading, `include`/`joinedload` in ORMs, or load children in a single batched query keyed by parent IDs. In Python/SQLAlchemy use `joinedload(User.orders)`. For REST/GraphQL data sources, use DataLoader-style batching.
+**Fix:** JOIN-based eager loading, `include`/`joinedload`, or batched query by parent IDs. For REST/GraphQL, use DataLoader-style batching.
 
 ---
 
 ### Unbounded Data Fetching
 
-- **Description**: A query or API call retrieves all records with no upper bound, causing memory and latency to grow linearly with data volume.
-- **Symptoms**:
-  - `SELECT *` or ORM `findAll()` without a `LIMIT` clause
-  - API calls with no pagination parameters
-  - Response payload size grows unboundedly as data accumulates
-- **Detection in Code Review**:
-  - Search for `findAll`, `SELECT *`, or `getAll` without accompanying `LIMIT`, `take`, or `pageSize`
-  - Check if the result is immediately serialized to JSON for an HTTP response — a good signal that pagination is needed
-  - Look for `.length` checks after fetching all records — this pattern suggests filtering should happen in the query
+**Detection:** `findAll`, `SELECT *`, or `getAll` without `LIMIT`, `take`, or `pageSize`. Result immediately serialized to JSON signals pagination needed.
 
 ```typescript
 // BEFORE — fetches every row
@@ -95,26 +80,18 @@ const orders = await db.orders.findAll({
 });
 ```
 
-- **Fix Strategy**: Add mandatory `LIMIT` and `OFFSET` (or cursor-based pagination) to all list queries. Define a maximum page size and enforce it at the API layer. Use streaming for export/batch operations.
+**Fix:** Mandatory `LIMIT`+`OFFSET` or cursor-based pagination. Enforce max page size at API layer. Use streaming for exports.
 
 ---
 
 ### Improper Connection Management
 
-- **Description**: Database connections are created per request or per function call rather than acquired from a connection pool.
-- **Symptoms**:
-  - `new Connection(...)`, `createClient()`, or `connect()` called inside a request handler or utility function
-  - Connection object is not reused across requests
-  - Connection count in the database spikes under load and exceeds the server's limit
-- **Detection in Code Review**:
-  - Look for database client instantiation at function scope rather than module scope or DI container
-  - Check if the connection is closed inside the same function it was opened — this is not pooling
-  - In Python: `psycopg2.connect()` inside a route handler; in Node.js: `new Pool()` per request
+**Detection:** `new Connection(...)`, `createClient()`, or `connect()` inside a request handler. Connection opened and closed in the same function is not pooling.
 
 ```typescript
 // BEFORE — new connection per call
 async function getUser(id: string) {
-  const client = new Client(dbConfig); // connection per call
+  const client = new Client(dbConfig);
   await client.connect();
   const result = await client.query('SELECT * FROM users WHERE id = $1', [id]);
   await client.end();
@@ -123,7 +100,7 @@ async function getUser(id: string) {
 
 // AFTER — shared pool at module scope
 import { Pool } from 'pg';
-const pool = new Pool(dbConfig); // initialized once
+const pool = new Pool(dbConfig);
 
 async function getUser(id: string) {
   const result = await pool.query('SELECT * FROM users WHERE id = $1', [id]);
@@ -131,7 +108,7 @@ async function getUser(id: string) {
 }
 ```
 
-- **Fix Strategy**: Initialize a connection pool at application startup. Inject it via constructor or module-level singleton. Ensure pool size is tuned to the database server's `max_connections`.
+**Fix:** Initialize pool at startup. Inject via constructor or module singleton. Tune pool size to DB `max_connections`.
 
 ---
 
@@ -139,15 +116,7 @@ async function getUser(id: string) {
 
 ### Chatty I/O
 
-- **Description**: Performing many small I/O operations where one larger operation would suffice. Common with file systems, HTTP APIs, and message queues.
-- **Symptoms**:
-  - Sending one HTTP request per item in a list when a bulk API exists
-  - Writing to a file or queue one record at a time inside a loop
-  - Making individual cache `GET` calls per item when `MGET` is available
-- **Detection in Code Review**:
-  - Look for `fetch`, `axios.get`, `redisClient.get`, or `fs.write` inside a loop
-  - Check if the target API offers a batch endpoint — if so, single-call usage in a loop is Chatty I/O
-  - Look at Redis usage: `GET key` in a loop should be `MGET key1 key2 ...`
+**Detection:** `fetch`, `axios.get`, `redisClient.get`, or `fs.write` inside a loop when bulk APIs exist. Redis `GET` in a loop should be `MGET`.
 
 ```typescript
 // BEFORE — one request per item
@@ -163,26 +132,21 @@ const profiles = await fetch('/api/profiles/batch', {
 }).then(r => r.json());
 ```
 
-- **Fix Strategy**: Use bulk/batch APIs when available. Buffer writes and flush periodically. For Redis, replace single-key `GET`/`SET` loops with `MGET`/`MSET` or pipelines.
+**Fix:** Use bulk/batch APIs. Buffer writes and flush periodically. Redis: `MGET`/`MSET` or pipelines.
 
 ---
 
 ### Synchronous I/O in Hot Path
 
-- **Description**: Blocking I/O (file reads, network calls, synchronous database drivers) executed on the request-handling thread, stalling all concurrent requests.
-- **Symptoms**:
-  - `fs.readFileSync`, `execSync`, or any synchronous I/O API in a web server handler
-  - Missing `await` on a Promise-returning function — the call runs but the result is not awaited, OR the entire function is synchronous when it should be async
-  - Python `requests.get()` (synchronous) used inside an `async def` handler without `run_in_executor`
-- **Detection in Code Review**:
-  - Search for `Sync` suffix in Node.js (e.g., `readFileSync`, `writeFileSync`, `execSync`)
-  - In Python async code: look for synchronous `requests`, `open()`, or database calls without `await`
-  - Check for missing `await` keywords before I/O-returning calls in TypeScript/JS
+**Detection:**
+- Node.js: `Sync` suffix (`readFileSync`, `writeFileSync`, `execSync`)
+- Python async: synchronous `requests`, `open()`, or DB calls without `await`
+- Missing `await` before I/O-returning calls
 
 ```typescript
 // BEFORE — blocking read on every request
 app.get('/config', (req, res) => {
-  const config = fs.readFileSync('./config.json', 'utf8'); // blocks event loop
+  const config = fs.readFileSync('./config.json', 'utf8');
   res.json(JSON.parse(config));
 });
 
@@ -197,7 +161,7 @@ app.get('/config', async (req, res) => {
 });
 ```
 
-- **Fix Strategy**: Replace all synchronous I/O APIs with their async equivalents. In Python, use `asyncio`-compatible drivers (`asyncpg`, `httpx`, `aiofiles`). Move blocking work to a thread pool via `run_in_executor` when async drivers are unavailable.
+**Fix:** Replace sync I/O with async equivalents. Python: `asyncpg`, `httpx`, `aiofiles`. Use `run_in_executor` when async drivers unavailable.
 
 ---
 
@@ -205,26 +169,17 @@ app.get('/config', async (req, res) => {
 
 ### Retry Storm
 
-- **Description**: A client retries failed requests immediately and aggressively, overwhelming a degraded downstream service and preventing its recovery.
-- **Symptoms**:
-  - Retry loop with fixed delay or no delay
-  - No maximum retry count or overly large maximum
-  - No jitter: all clients retry at the same time after a delay
-  - No circuit breaker: requests continue even when all recent attempts have failed
-- **Detection in Code Review**:
-  - Look for `while (attempts < MAX)` or `for` retry loops with `await sleep(FIXED_DELAY)`
-  - Check for missing jitter — `delay * attempt` without `+ Math.random() * baseDelay`
-  - Check for missing circuit breaker state or exponential growth in the delay
+**Detection:**
+- `while (attempts < MAX)` with `await sleep(FIXED_DELAY)` — no exponential growth
+- Missing jitter — `delay * attempt` without `+ Math.random() * baseDelay`
+- No circuit breaker state
 
 ```typescript
 // BEFORE — fixed delay retry, no jitter
 async function fetchWithRetry(url: string, maxRetries = 5) {
   for (let i = 0; i < maxRetries; i++) {
-    try {
-      return await fetch(url);
-    } catch {
-      await sleep(1000); // all callers retry at exactly the same time
-    }
+    try { return await fetch(url); }
+    catch { await sleep(1000); }
   }
   throw new Error('Max retries exceeded');
 }
@@ -232,19 +187,17 @@ async function fetchWithRetry(url: string, maxRetries = 5) {
 // AFTER — exponential backoff with jitter
 async function fetchWithRetry(url: string, maxRetries = 4) {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      return await fetch(url);
-    } catch (err) {
+    try { return await fetch(url); }
+    catch (err) {
       if (attempt === maxRetries - 1) throw err;
       const baseDelay = Math.min(1000 * 2 ** attempt, 30000);
-      const jitter = Math.random() * baseDelay;
-      await sleep(baseDelay + jitter);
+      await sleep(baseDelay + Math.random() * baseDelay);
     }
   }
 }
 ```
 
-- **Fix Strategy**: Implement exponential backoff (`baseDelay * 2^attempt`) capped at a maximum. Add random jitter (`± 50% of delay`) to desynchronize clients. Wrap retries in a circuit breaker that stops retrying after a threshold failure rate.
+**Fix:** Exponential backoff (`baseDelay * 2^attempt`) capped at max. Add jitter. Wrap in circuit breaker.
 
 ---
 
@@ -252,22 +205,16 @@ async function fetchWithRetry(url: string, maxRetries = 4) {
 
 ### Memory Leak
 
-- **Description**: Objects are allocated and retain references longer than their useful lifetime, preventing garbage collection and causing heap growth over time.
-- **Symptoms**:
-  - Event listeners registered in a setup function but never removed
-  - A cache or registry that grows without eviction logic
-  - Closures in long-lived objects holding references to large outer scope objects
-  - Memory usage grows steadily with uptime (not just with load)
-- **Detection in Code Review**:
-  - Look for `addEventListener`, `on(event, handler)` without a corresponding `removeEventListener` or `off`
-  - Look for `Map` or `object` used as a cache with no size limit, TTL, or eviction
-  - In React: `useEffect` with subscriptions or timers that have no cleanup return function
+**Detection:**
+- `addEventListener`/`on(event, handler)` without corresponding removal
+- `Map`/object cache with no size limit, TTL, or eviction
+- React `useEffect` with subscriptions/timers and no cleanup return
 
 ```typescript
 // BEFORE — listener never removed
 class DataService {
   constructor(private emitter: EventEmitter) {
-    this.emitter.on('data', this.handleData.bind(this)); // reference never released
+    this.emitter.on('data', this.handleData.bind(this));
   }
   handleData(data: unknown) { /* ... */ }
 }
@@ -280,28 +227,20 @@ class DataService {
     this.emitter.on('data', this.handler);
   }
   handleData(data: unknown) { /* ... */ }
-  destroy() {
-    this.emitter.off('data', this.handler); // explicit release
-  }
+  destroy() { this.emitter.off('data', this.handler); }
 }
 ```
 
 ```typescript
 // BEFORE — unbounded cache
 const responseCache = new Map<string, Response>();
-async function fetchCached(url: string) {
-  if (!responseCache.has(url)) {
-    responseCache.set(url, await fetch(url).then(r => r.json()));
-  }
-  return responseCache.get(url);
-}
 
-// AFTER — bounded LRU cache (e.g., lru-cache library)
+// AFTER — bounded LRU cache
 import LRU from 'lru-cache';
 const responseCache = new LRU<string, Response>({ max: 500, ttl: 60_000 });
 ```
 
-- **Fix Strategy**: Always pair `on`/`addEventListener` with `off`/`removeEventListener` in a cleanup method or `useEffect` teardown. Use bounded caches (LRU, TTL-based). Audit closures in long-lived objects for unintended large references.
+**Fix:** Pair `on`/`addEventListener` with `off`/`removeEventListener` in cleanup. Use bounded caches (LRU, TTL). Audit closures for unintended references.
 
 ---
 
@@ -309,15 +248,10 @@ const responseCache = new LRU<string, Response>({ max: 500, ttl: 60_000 });
 
 ### Blocking the Event Loop
 
-- **Description**: CPU-intensive synchronous work runs on Node.js's single-threaded event loop (or the browser's main thread), starving all concurrent I/O and rendering.
-- **Symptoms**:
-  - Heavy computation (sorting large arrays, parsing, encryption, image processing) in a route handler or component render
-  - `JSON.parse` or `JSON.stringify` on very large payloads inline in a request handler
-  - Tight loops with no `await` points that run for > ~16ms
-- **Detection in Code Review**:
-  - Look for CPU-heavy algorithms (sorting, hashing, parsing) directly in route handlers or event callbacks
-  - Check payload sizes: `JSON.parse(largeBlob)` inside a request cycle is a red flag
-  - Look for absence of `worker_threads` or Web Workers for tasks labeled as "heavy" or "compute"
+**Detection:**
+- CPU-heavy algorithms (sorting, hashing, parsing) in route handlers
+- `JSON.parse(largeBlob)` in request cycle
+- No `worker_threads` or Web Workers for compute-heavy tasks
 
 ```typescript
 // BEFORE — CPU work blocks all other requests
@@ -335,7 +269,7 @@ app.post('/report', (req, res) => {
 });
 ```
 
-- **Fix Strategy**: Move CPU-bound work to Node.js `worker_threads` or a task queue (BullMQ, Celery). In browsers, use Web Workers. For moderate-cost work, break processing into chunks with `setImmediate` yield points.
+**Fix:** Move CPU work to `worker_threads` or task queue (BullMQ, Celery). Browsers: Web Workers. Moderate cost: chunk with `setImmediate`.
 
 ---
 
@@ -343,66 +277,45 @@ app.post('/report', (req, res) => {
 
 ### No Caching
 
-- **Description**: Data that is expensive to compute or fetch and changes infrequently is recomputed or re-fetched on every request.
-- **Symptoms**:
-  - An external API is called on every page load for data that updates once per hour
-  - A complex database aggregation runs per request with no cache TTL
-  - `console.log` or profiling reveals the same computation result multiple times per second
-- **Detection in Code Review**:
-  - Look for third-party API calls in the hot path with no cache check preceding them
-  - Check for expensive aggregation queries without a `CACHE_TTL` or Redis prefetch
-  - Look for idempotent pure functions called repeatedly with the same arguments in tight loops
+**Detection:** Third-party API calls in hot path with no cache check. Expensive aggregation queries without `CACHE_TTL`. Idempotent pure functions called repeatedly with same args.
 
-- **Fix Strategy**: Introduce a cache layer at the boundary where data enters the system. Use in-memory caches (Map, `lru-cache`) for process-local data. Use Redis or Memcached for data shared across instances. Define explicit TTLs aligned with acceptable staleness. Document the cache invalidation strategy in code comments.
+**Fix:** Cache at the boundary where data enters. In-memory (`lru-cache`) for process-local; Redis/Memcached for shared. Define explicit TTLs. Document invalidation strategy.
 
 ---
 
 ### String Concatenation in Loops
 
-- **Description**: Building a string incrementally using `+=` inside a loop. In many runtimes, each concatenation allocates a new string object, producing O(n²) allocations for n iterations.
-- **Symptoms**:
-  - `result += item` inside a `for` or `while` loop building a large string
-  - SQL queries or HTML strings assembled character-by-character or segment-by-segment in a loop
-- **Detection in Code Review**:
-  - Search for `+=` applied to a string variable inside any loop
-  - Look for string accumulation patterns: `let sql = ''; for (...) { sql += ... }`
+**Detection:** `+=` on a string variable inside any loop. String accumulation: `let sql = ''; for (...) { sql += ... }`.
 
 ```typescript
-// BEFORE — O(n²) allocations
+// BEFORE — O(n^2) allocations
 function buildCsv(rows: string[][]): string {
   let csv = '';
-  for (const row of rows) {
-    csv += row.join(',') + '\n'; // new string per iteration
-  }
+  for (const row of rows) { csv += row.join(',') + '\n'; }
   return csv;
 }
 
-// AFTER — single join call
+// AFTER — single join
 function buildCsv(rows: string[][]): string {
   return rows.map(row => row.join(',')).join('\n');
 }
 ```
 
-- **Fix Strategy**: Collect string segments in an array and call `Array.join()` once at the end. In Python, use `"".join(str(item) for item in items)`. For SQL builders, use a query builder library rather than string concatenation.
+**Fix:** Collect segments in array, `join()` once. Python: `"".join(...)`. SQL: use query builder.
 
 ---
 
 ### Over-rendering
 
-- **Description**: UI components re-render more often than their displayed data changes, wasting CPU cycles and causing visible jank.
-- **Symptoms**:
-  - React components without `React.memo` receive new object/array references on every parent render
-  - `useEffect` dependency arrays contain objects or functions created inline — new reference each render
-  - Derived state is recomputed inline in render instead of being memoized with `useMemo`
-- **Detection in Code Review**:
-  - Look for `useEffect(() => ..., [someObject])` where `someObject` is created with `{}` or `[]` in the same render
-  - Look for expensive computations (filtering, sorting large arrays) directly in render functions without `useMemo`
-  - Check if callback props passed to child components are wrapped in `useCallback`
+**Detection:**
+- `useEffect(() => ..., [someObject])` where `someObject` is `{}`/`[]` created each render
+- Expensive computations in render without `useMemo`
+- Callback props not wrapped in `useCallback`
 
 ```typescript
-// BEFORE — new array reference triggers re-render every time
+// BEFORE — new object reference triggers re-render every time
 function ParentComponent({ items }: { items: Item[] }) {
-  return <ChildList filters={{ active: true }} items={items} />; // new object each render
+  return <ChildList filters={{ active: true }} items={items} />;
 }
 
 // AFTER — stable reference with useMemo
@@ -413,7 +326,7 @@ function ParentComponent({ items }: { items: Item[] }) {
 }
 ```
 
-- **Fix Strategy**: Wrap expensive computations in `useMemo`. Stabilize callback references with `useCallback`. Use `React.memo` on pure child components. Lift stable values out of render scope or to a ref when appropriate.
+**Fix:** `useMemo` for expensive computations. `useCallback` for stable callbacks. `React.memo` on pure children. Lift stable values out of render scope.
 
 ---
 
@@ -434,18 +347,18 @@ function ParentComponent({ items }: { items: Item[] }) {
 
 | Related Skill | Relationship |
 |---------------|-------------|
-| `anti-patterns-catalog` | Structural anti-patterns (God Object, Spaghetti Code) that obscure hot paths |
-| `review-code-quality-process` | Workflow for conducting performance-focused reviews |
+| `anti-patterns-catalog` | Structural anti-patterns that obscure hot paths |
+| `review-code-quality-process` | Workflow for performance-focused reviews |
 | `detect-code-smells` | Line-level signals that co-occur with performance anti-patterns |
-| `design-patterns-behavioral` | Command pattern for queuing, Observer for decoupled event handling |
+| `design-patterns-behavioral` | Command for queuing, Observer for decoupled events |
 | `design-patterns-creational-structural` | Adapter for wrapping slow vendors; Flyweight for shared instances |
 
 ## Common Review Mistakes
 
 | Mistake | Correct Approach |
 |---------|-----------------|
-| Flagging `await` in a loop as always wrong | Awaiting in a loop is only N+1 if the awaited call is a database query or unbatched I/O; sequential async processing is sometimes intentional |
-| Requiring caching everywhere | Caching adds invalidation complexity; only mandate it when the data is proven expensive and stable |
-| Treating all string concatenation as O(n²) | Modern JS engines optimize small, fixed-iteration concatenation; flag only loops with unbounded or large iteration counts |
-| Blocking the event loop vs. slow async path | A slow `await` does not block the event loop — only synchronous CPU work does |
-| Demanding memoization for all React components | `React.memo` has overhead; apply it only when profiling confirms unnecessary re-renders |
+| Flagging `await` in a loop as always wrong | Only N+1 if awaited call is a DB query or unbatched I/O; sequential async is sometimes intentional |
+| Requiring caching everywhere | Caching adds invalidation complexity; only mandate for proven expensive+stable data |
+| Treating all string concat as O(n^2) | Modern JS engines optimize small, fixed-iteration cases; flag only unbounded loops |
+| Blocking event loop vs. slow async path | Slow `await` does not block the event loop — only synchronous CPU work does |
+| Demanding memoization for all components | `React.memo` has overhead; apply only when profiling confirms unnecessary re-renders |

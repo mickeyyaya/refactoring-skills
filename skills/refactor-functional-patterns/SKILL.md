@@ -7,15 +7,9 @@ description: Use when reviewing code for functional programming quality — cove
 
 ## Overview
 
-Functional programming (FP) patterns produce code that is predictable, testable, and composable. These patterns reduce bugs by eliminating shared mutable state and side effects. Use this guide during code review to identify opportunities to apply or enforce FP principles.
+FP patterns produce code that is predictable, testable, and composable by eliminating shared mutable state and side effects.
 
-## When to Use
-
-- Reviewing code with frequent state mutation bugs
-- Functions that are hard to unit test due to hidden dependencies
-- Complex data transformation pipelines
-- Code with repeated null-check boilerplate
-- Functions that do too much (mix computation and I/O)
+**When to use:** State mutation bugs, hidden dependencies, untestable functions, complex data pipelines, repeated null-check boilerplate, functions mixing computation and I/O.
 
 ## Quick Reference
 
@@ -36,34 +30,25 @@ Functional programming (FP) patterns produce code that is predictable, testable,
 
 ### 1. Pure Functions
 
-**Intent:** Same input → same output, no side effects (no I/O, no global writes, no mutations). All business logic should be pure; reserve impure code for system edges (DB, network, UI).
+**Red Flags:** Reading `global`/`process.env` in computation; I/O mixed into business logic; parameter mutation (`arr.push(x)`); `Date.now()`/`Math.random()` in deterministic functions.
 
-**Code Review Red Flags:**
-- Reading from `global`, `process.env`, or module-level variables inside a computation
-- `console.log`, file writes, or network calls mixed into business logic
-- Parameter mutation: `arr.push(x)` or `obj.field = value` inside a function
-- `Date.now()`, `Math.random()`, or `new UUID()` called inside a deterministic function
-
-**TypeScript — Before:**
 ```typescript
-let taxRate = 0.2;  // global
-
+// BEFORE — reads global state + side effect
+let taxRate = 0.2;
 function calculateTotal(price: number): number {
-  const total = price * (1 + taxRate);  // reads global state
-  console.log(`total: ${total}`);       // side effect
+  const total = price * (1 + taxRate);
+  console.log(`total: ${total}`);
   return total;
 }
-```
 
-**TypeScript — After:**
-```typescript
+// AFTER — pure: only uses arguments
 function calculateTotal(price: number, taxRate: number): number {
-  return price * (1 + taxRate);  // pure: only uses arguments
+  return price * (1 + taxRate);
 }
 ```
 
-**Python — After:**
 ```python
+# Python equivalent
 def calculate_total(price: float, tax_rate: float) -> float:
     return price * (1 + tax_rate)
 ```
@@ -72,75 +57,53 @@ def calculate_total(price: float, tax_rate: float) -> float:
 
 ### 2. Immutability
 
-**Intent:** Never modify existing data structures. Always return new copies. Critical in shared state, React/Redux, and concurrent code.
+**Red Flags:** `.push()`/`.pop()`/`.splice()`/`.sort()` mutate in place; `object.field = value`; `Object.assign` on original; shallow spread missing nested immutability; missing `readonly`.
 
-**Code Review Red Flags:**
-- `array.push()`, `array.pop()`, `array.splice()`, `array.sort()` — all mutate in place
-- `object.field = value` or `delete object.key`
-- `Object.assign(target, source)` where `target` is the original object (not a fresh `{}`)
-- Spread that is only one level deep when nested objects also need immutability
-- Missing `readonly` on TypeScript interfaces that should not be changed
-
-**TypeScript — Before:**
 ```typescript
+// BEFORE — mutates caller's array
 function addItem(cart: CartItem[], item: CartItem): CartItem[] {
-  cart.push(item);  // mutates caller's array
+  cart.push(item);
   return cart;
 }
-```
 
-**TypeScript — After:**
-```typescript
+// AFTER — new array, original untouched
 function addItem(cart: readonly CartItem[], item: CartItem): readonly CartItem[] {
-  return [...cart, item];  // new array, original untouched
+  return [...cart, item];
 }
 ```
 
-**Python — After:**
 ```python
+# Python — tuples are immutable
 def add_item(cart: tuple, item) -> tuple:
-    return (*cart, item)  # tuples are immutable; returns new tuple
+    return (*cart, item)
 ```
 
-Cross-reference: `refactor-composing-methods` — "Remove Assignments to Parameters" enforces the same principle at the parameter level.
+Cross-reference: `refactor-composing-methods` — "Remove Assignments to Parameters".
 
 ---
 
 ### 3. Map / Filter / Reduce
 
-**Intent:** Express collection transformations declaratively. Use `map` to transform, `filter` to select, `reduce` to aggregate, `flatMap` to flatten nested results.
+**Red Flags:** Loop building accumulator → `map`; with condition → `filter`; single value → `reduce`; nested loops → `flatMap`; index used only to access element.
 
-**Code Review Red Flags:**
-- A `for` loop that builds an accumulator array (`result.push(...)`) → use `map`
-- A `for` loop that skips items with `if (condition) result.push(...)` → use `filter`
-- A `for` loop that reduces to a single value (`total += item.price`) → use `reduce`
-- Nested loops that can be replaced with `flatMap`
-- Index variable used only to access the current element (not for position logic)
-
-**TypeScript — Before:**
 ```typescript
+// BEFORE
 function getActiveUserEmails(users: User[]): string[] {
   const result: string[] = [];
   for (let i = 0; i < users.length; i++) {
-    if (users[i].active) {
-      result.push(users[i].email.toLowerCase());
-    }
+    if (users[i].active) result.push(users[i].email.toLowerCase());
   }
   return result;
 }
-```
 
-**TypeScript — After:**
-```typescript
+// AFTER
 function getActiveUserEmails(users: readonly User[]): readonly string[] {
-  return users
-    .filter(user => user.active)
-    .map(user => user.email.toLowerCase());
+  return users.filter(u => u.active).map(u => u.email.toLowerCase());
 }
 ```
 
-**Python — After:**
 ```python
+# Python — list comprehension
 def get_active_user_emails(users: list[User]) -> list[str]:
     return [u.email.lower() for u in users if u.active]
 ```
@@ -149,25 +112,17 @@ def get_active_user_emails(users: list[User]) -> list[str]:
 
 ### 4. Function Composition
 
-**Intent:** Build complex transformations by combining small, single-purpose functions into a pipeline. Apply when three or more sequential transforms are applied to a value.
+**Red Flags:** Nested calls `f(g(h(x)))`; variables named `temp`/`step1`/`result1`; single function doing three things separated by comments.
 
-**Code Review Red Flags:**
-- Deeply nested calls: `format(validate(parse(trim(input))))`
-- Intermediate variables named `temp`, `step1`, `result1`
-- A single function doing three distinct things in sequence with comments separating them
-
-**TypeScript — Before:**
 ```typescript
+// BEFORE
 function processUserInput(raw: string): string {
   const trimmed = raw.trim();
   const lower = trimmed.toLowerCase();
-  const normalized = lower.replace(/\s+/g, '_');
-  return normalized;
+  return lower.replace(/\s+/g, '_');
 }
-```
 
-**TypeScript — After:**
-```typescript
+// AFTER — pipeline
 const pipe = <T>(...fns: Array<(x: T) => T>) => (x: T): T =>
   fns.reduce((acc, fn) => fn(acc), x);
 
@@ -178,10 +133,8 @@ const processUserInput = pipe(
 );
 ```
 
-**Python — After:**
 ```python
 from functools import reduce
-
 def pipe(*fns):
     return lambda x: reduce(lambda acc, f: f(acc), fns, x)
 
@@ -192,24 +145,18 @@ process_user_input = pipe(str.strip, str.lower, lambda s: s.replace(' ', '_'))
 
 ### 5. Higher-Order Functions
 
-**Intent:** Abstract over behavior by passing functions as arguments or returning them as results, eliminating copy-pasted blocks that differ only in one operation.
+**Red Flags:** Two functions identical except one operation; callback code abstractable into retry/cache/log wrapper.
 
-**Code Review Red Flags:**
-- Two functions identical except for one operation (sort comparator, predicate, transform step)
-- Callback-style code that could be abstracted into a retry/cache/log wrapper
-
-**TypeScript — Before:**
 ```typescript
+// BEFORE — duplicated sort logic
 function sortByName(users: User[]): User[] {
   return [...users].sort((a, b) => a.name.localeCompare(b.name));
 }
 function sortByAge(users: User[]): User[] {
   return [...users].sort((a, b) => a.age - b.age);
 }
-```
 
-**TypeScript — After:**
-```typescript
+// AFTER — parameterized
 function sortBy<T>(key: (item: T) => number | string) {
   return (items: readonly T[]): readonly T[] =>
     [...items].sort((a, b) => {
@@ -217,7 +164,6 @@ function sortBy<T>(key: (item: T) => number | string) {
       return ka < kb ? -1 : ka > kb ? 1 : 0;
     });
 }
-
 const sortByName = sortBy((u: User) => u.name);
 const sortByAge  = sortBy((u: User) => u.age);
 ```
@@ -226,29 +172,16 @@ const sortByAge  = sortBy((u: User) => u.age);
 
 ### 6. Currying / Partial Application
 
-**Intent:** Pre-fill some arguments to produce a specialized function. Apply when the same function is repeatedly called with the same leading arguments.
+**Red Flags:** Repeated calls like `formatDate(locale, date1)`, `formatDate(locale, date2)`; config objects threaded when only the last arg varies.
 
-**Code Review Red Flags:**
-- Repeated calls like `formatDate(locale, date1)`, `formatDate(locale, date2)` — the `locale` should be partially applied
-- Config objects passed through every call in a chain when only the last argument varies
-
-**TypeScript — Before:**
 ```typescript
-function formatCurrency(locale: string, currency: string, amount: number): string {
-  return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(amount);
-}
-
-// caller repeatedly specifies locale and currency
+// BEFORE — caller repeatedly specifies locale and currency
 formatCurrency('en-US', 'USD', 9.99);
 formatCurrency('en-US', 'USD', 19.99);
-```
 
-**TypeScript — After:**
-```typescript
+// AFTER — curried
 const formatCurrency =
-  (locale: string) =>
-  (currency: string) =>
-  (amount: number): string =>
+  (locale: string) => (currency: string) => (amount: number): string =>
     new Intl.NumberFormat(locale, { style: 'currency', currency }).format(amount);
 
 const formatUSD = formatCurrency('en-US')('USD');
@@ -256,10 +189,8 @@ formatUSD(9.99);
 formatUSD(19.99);
 ```
 
-**Python — After:**
 ```python
 from functools import partial
-
 format_usd = partial(format_currency, 'en-US', 'USD')
 format_usd(9.99)
 ```
@@ -268,15 +199,10 @@ format_usd(9.99)
 
 ### 7. Functors / Monads (Optional, Result, Promise)
 
-**Intent:** Use chainable containers (`Optional`/`Maybe`, `Result`/`Either`, `Promise`) to sequence operations that may fail or be absent, eliminating null-check pyramids and nested try-catch.
+**Red Flags:** `if (a !== null && a.b !== null && ...)` chains; nested try-catch; functions returning `null | undefined | T` without a container type.
 
-**Code Review Red Flags:**
-- `if (a !== null && a.b !== null && a.b.c !== null)` chains
-- `try { try { ... } catch {} } catch {}` nesting
-- Functions returning `null | undefined | T` without a container type
-
-**TypeScript — Before (null pyramid):**
 ```typescript
+// BEFORE — null pyramid
 function getCity(user: User | null): string | null {
   if (user !== null) {
     if (user.address !== null) {
@@ -287,17 +213,15 @@ function getCity(user: User | null): string | null {
   }
   return null;
 }
-```
 
-**TypeScript — After (optional chaining + nullish coalescing):**
-```typescript
+// AFTER — optional chaining
 function getCity(user: User | null): string | null {
   return user?.address?.city?.toUpperCase() ?? null;
 }
 ```
 
-**TypeScript — After (Result type for error handling):**
 ```typescript
+// Result type for error handling
 type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };
 
 function parseAge(raw: string): Result<number, string> {
@@ -305,14 +229,8 @@ function parseAge(raw: string): Result<number, string> {
   if (isNaN(n) || n < 0) return { ok: false, error: `Invalid age: ${raw}` };
   return { ok: true, value: n };
 }
-
-// caller handles both branches explicitly — no hidden exceptions
-const result = parseAge(input);
-if (result.ok) console.log(result.value);
-else console.error(result.error);
 ```
 
-**Python — After:**
 ```python
 from dataclasses import dataclass
 
@@ -336,25 +254,18 @@ def parse_age(raw: str) -> Ok | Err:
 
 ### 8. Pattern Matching
 
-**Intent:** Destructure and branch on data shape using discriminated unions instead of `instanceof` chains or type-discriminant conditionals.
+**Red Flags:** `instanceof` chains — use discriminated unions; type conditionals without exhaustiveness check; switch on union with no `default`.
 
-**Code Review Red Flags:**
-- `if (x instanceof A) ... else if (x instanceof B) ...` — use discriminated unions
-- `if (x.type === 'circle') ... else if (x.type === 'rect') ...` without exhaustiveness check
-- Switch statements with no `default` (or `default: throw`) when the value is a union
-
-**TypeScript — Before:**
 ```typescript
+// BEFORE — instanceof chain
 function area(shape: Circle | Rectangle | Triangle): number {
   if (shape instanceof Circle) return Math.PI * shape.radius ** 2;
   if (shape instanceof Rectangle) return shape.width * shape.height;
   if (shape instanceof Triangle) return 0.5 * shape.base * shape.height;
   throw new Error('Unknown shape');
 }
-```
 
-**TypeScript — After (discriminated union with exhaustiveness):**
-```typescript
+// AFTER — discriminated union with exhaustiveness
 type Shape =
   | { kind: 'circle';    radius: number }
   | { kind: 'rectangle'; width: number; height: number }
@@ -366,15 +277,15 @@ function area(shape: Shape): number {
     case 'rectangle': return shape.width * shape.height;
     case 'triangle':  return 0.5 * shape.base * shape.height;
     default: {
-      const _exhaustive: never = shape;  // compile error if case is missing
+      const _exhaustive: never = shape;
       throw new Error(`Unhandled shape: ${JSON.stringify(_exhaustive)}`);
     }
   }
 }
 ```
 
-**Python — After (Python 3.10+ match):**
 ```python
+# Python 3.10+
 def area(shape: dict) -> float:
     match shape:
         case {'kind': 'circle', 'radius': r}:    return 3.14159 * r ** 2
@@ -389,12 +300,12 @@ def area(shape: dict) -> float:
 
 | Anti-Pattern | Description | Fix |
 |-------------|-------------|-----|
-| **Impure function masquerading as pure** | Function looks pure but reads a closure variable that changes over time | Make the mutable dependency an explicit parameter |
-| **Shallow-copy illusion** | `{...obj}` or `[...arr]` creates a new reference but nested objects are still shared | Deep-clone nested structures or use immutable data libraries (Immer, Immutable.js) |
-| **Point-free everything** | Removing all named parameters for brevity makes code unreadable | Use point-free style only when it clarifies, not as a rule |
-| **Monadic overkill** | Wrapping a simple `if (!x) return null` in a full Maybe monad | Match the tool to the complexity — prefer optional chaining for shallow checks |
-| **Impure reduce** | Using `reduce` with an accumulator that is mutated inside the callback | Return a new accumulator object each iteration |
-| **Accidental shared state in curried functions** | A curried function captures a mutable value from outer scope | Ensure captured values are constants or primitives |
+| **Impure function masquerading as pure** | Reads a closure variable that changes over time | Make mutable dependency an explicit parameter |
+| **Shallow-copy illusion** | `{...obj}` — nested objects still shared | Deep-clone or use Immer/Immutable.js |
+| **Point-free everything** | Removing all named parameters hurts readability | Use point-free only when it clarifies |
+| **Monadic overkill** | Full Maybe monad for simple null check | Prefer optional chaining for shallow checks |
+| **Impure reduce** | Accumulator mutated inside callback | Return new accumulator each iteration |
+| **Shared state in curried functions** | Captures mutable outer scope value | Ensure captured values are constants |
 
 **Shallow-copy illusion — example:**
 ```typescript
@@ -410,7 +321,7 @@ const updated = { ...user, name: 'Alice', address: { ...user.address, city: 'Bos
 
 ## Cross-References
 
-- `refactor-composing-methods` — "Remove Assignments to Parameters" for immutability at the argument level; "Substitute Algorithm" for replacing loops with declarative transforms
-- `refactor-simplifying-conditionals` — Simplifying the `if`/`else` chains that pattern matching replaces
-- `review-solid-clean-code` — Single Responsibility Principle aligns with pure functions; Open/Closed Principle aligns with HOFs
-- `detect-code-smells` — "Data Clumps" often signal missing algebraic data types; "Long Method" often signals missing function composition
+- `refactor-composing-methods` — "Remove Assignments to Parameters" (immutability); "Substitute Algorithm" (loops → declarative)
+- `refactor-simplifying-conditionals` — Simplifying `if`/`else` chains that pattern matching replaces
+- `review-solid-clean-code` — SRP aligns with pure functions; OCP aligns with HOFs
+- `detect-code-smells` — "Data Clumps" → missing algebraic data types; "Long Method" → missing composition

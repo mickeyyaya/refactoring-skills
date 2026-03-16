@@ -7,9 +7,9 @@ description: Use when reviewing code for security vulnerabilities — covers Inj
 
 ## Overview
 
-Security vulnerabilities are cheapest to fix at code review. SQL injection, hardcoded secrets, and missing authorization checks all have clear code-level signatures. Use this guide during PR review to catch OWASP Top 10 risks before they ship.
+Security vulnerabilities are cheapest to fix at code review. Use this guide during PR review to catch OWASP Top 10 risks before they ship.
 
-**When to use:** Reviewing PRs that touch authentication, data access, user input handling, external API calls, or configuration.
+**When to use:** PRs touching authentication, data access, user input, external APIs, or configuration.
 
 ## Quick Reference
 
@@ -36,39 +36,26 @@ Security vulnerabilities are cheapest to fix at code review. SQL injection, hard
 
 ### 1. Injection (SQL, NoSQL, Command, LDAP)
 
-**Description:** Untrusted data sent to an interpreter as part of a command or query.
+**Red Flags:** String concatenation in SQL; `exec`/`subprocess.call(shell=True)` with user values; ORM raw queries unparameterized.
 
-**Code Review Red Flags:**
-- String concatenation to build SQL: `"SELECT * FROM users WHERE id = " + userId`
-- `exec`, `execSync`, `subprocess.call(shell=True)` with any user-controlled value
-- ORM raw query fallback with unparameterized input: `db.raw(query + input)`
-
-**TypeScript — Before/After:**
 ```typescript
 // BEFORE — SQL injection: attacker sends "1 OR 1=1"
 const rows = await db.query(`SELECT * FROM orders WHERE user_id = '${req.params.id}'`);
 
-// AFTER — parameterized query; driver handles escaping
+// AFTER — parameterized query
 const rows = await db.query('SELECT * FROM orders WHERE user_id = $1', [req.params.id]);
 ```
 
-**Python — command injection:** `subprocess.call(f"process {filename}", shell=True)` → `subprocess.run(["process", filename], check=True)` — list form bypasses shell interpretation.
+**Python:** `subprocess.call(f"process {filename}", shell=True)` → `subprocess.run(["process", filename], check=True)` — list form bypasses shell.
 
 ---
 
 ### 2. Broken Authentication
 
-**Description:** Weak auth mechanisms allow attackers to compromise passwords, tokens, or impersonate users.
+**Red Flags:** MD5/SHA-1 passwords; hardcoded credentials; JWT without `exp` or signature verification; session IDs not rotated.
 
-**Code Review Red Flags:**
-- Passwords stored with MD5/SHA-1 — not bcrypt/argon2
-- Hardcoded credentials: `const API_KEY = "sk-live-abc123"`
-- JWT without `exp` claim or without signature verification
-- Session IDs not rotated after login (session fixation)
-
-**TypeScript — Before/After:**
 ```typescript
-// BEFORE — MD5 hash, trivially reversible
+// BEFORE — MD5, trivially reversible
 const hash = crypto.createHash('md5').update(password).digest('hex');
 
 // AFTER — bcrypt with work factor 12
@@ -76,11 +63,8 @@ import bcrypt from 'bcrypt';
 const hash = await bcrypt.hash(password, 12);
 ```
 
-**Go — JWT validation:**
 ```go
-// BEFORE: jwt.ParseWithClaims(tokenStr, &Claims{}, nil) — no signature check
-
-// AFTER — require valid signature and expiry
+// Go — JWT: require valid signature and expiry
 token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(t *jwt.Token) (interface{}, error) {
     if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
         return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
@@ -94,15 +78,10 @@ if err != nil || !token.Valid { return nil, ErrUnauthorized }
 
 ### 3. Sensitive Data Exposure
 
-**Description:** PII, credentials, or financial data exposed through logs, APIs, or weak encryption.
-
-**Code Review Red Flags:**
-- `logger.info('User logged in', { user })` — object may contain password hash or PII
-- HTTP (not HTTPS) URLs in API client config
-- `JSON.stringify(error)` in API responses that may leak stack traces
+**Red Flags:** Logging full user objects (PII); HTTP URLs in API config; `JSON.stringify(error)` leaking stack traces.
 
 ```typescript
-// BEFORE: logger.info('User logged in', { user }); — logs password hash and PII
+// BEFORE: logger.info('User logged in', { user }); — logs PII
 // AFTER — log only non-sensitive identifiers
 logger.info('User logged in', { userId: user.id, email: maskEmail(user.email) });
 ```
@@ -111,41 +90,31 @@ logger.info('User logged in', { userId: user.id, email: maskEmail(user.email) })
 
 ### 4. XML External Entities (XXE)
 
-**Description:** XML parsers that process external entities allow attackers to read local files or perform SSRF.
+**Red Flags:** XML parser factories without DTD disabled; user XML without entity processing disabled.
 
-**Code Review Red Flags:**
-- `DocumentBuilderFactory`, `SAXParserFactory` without disabling DTD
-- Accepting XML from user input without entity processing disabled
-
-**Java — After:**
 ```java
+// Java — disable DTD and external entities
 DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
 factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
 factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
 ```
 
-**Python:** replace `xml.etree.ElementTree` with `defusedxml.ElementTree` — blocks XXE and billion-laughs attacks.
+**Python:** replace `xml.etree.ElementTree` with `defusedxml.ElementTree`.
 
 ---
 
 ### 5. Broken Access Control
 
-**Description:** Authentication present but authorization missing — users access other users' data or escalate privileges.
+**Red Flags:** IDOR (query by user-supplied ID without ownership check); missing auth middleware; frontend-only role checks.
 
-**Code Review Red Flags:**
-- Route queries by user-supplied ID without verifying ownership (IDOR)
-- Missing auth middleware on protected routes
-- Role checks only on the frontend, not enforced server-side
-
-**TypeScript — Before/After:**
 ```typescript
-// BEFORE — IDOR: any authenticated user can read any order
+// BEFORE — IDOR: any authenticated user reads any order
 app.get('/orders/:id', authenticate, async (req, res) => {
   const order = await orderRepo.findById(req.params.id);
   res.json(order);
 });
 
-// AFTER — verify caller owns the resource
+// AFTER — verify ownership
 app.get('/orders/:id', authenticate, async (req, res) => {
   const order = await orderRepo.findById(req.params.id);
   if (!order || order.userId !== req.user.id) return res.status(403).json({ error: 'Forbidden' });
@@ -153,8 +122,8 @@ app.get('/orders/:id', authenticate, async (req, res) => {
 });
 ```
 
-**Go — role middleware:**
 ```go
+// Go — role middleware
 func RequireRole(role string) gin.HandlerFunc {
     return func(c *gin.Context) {
         user := c.MustGet("user").(User)
@@ -170,19 +139,13 @@ func RequireRole(role string) gin.HandlerFunc {
 
 ### 6. Security Misconfiguration
 
-**Description:** Insecure defaults, debug mode in production, permissive CORS, or missing security headers.
+**Red Flags:** `cors({ origin: '*' })` on auth endpoints; missing security headers; stack traces in production.
 
-**Code Review Red Flags:**
-- `cors({ origin: '*' })` on authenticated endpoints
-- Missing `helmet()` or equivalent security headers middleware
-- Stack traces returned in production error responses
-
-**TypeScript — Before/After:**
 ```typescript
 // BEFORE — wide-open CORS, no security headers
 app.use(cors());
 
-// AFTER — scoped CORS, helmet headers, hide server fingerprint
+// AFTER — scoped CORS, helmet, hide fingerprint
 import helmet from 'helmet';
 const allowed = (process.env.ALLOWED_ORIGINS ?? '').split(',');
 app.use(helmet());
@@ -194,16 +157,10 @@ app.disable('x-powered-by');
 
 ### 7. Cross-Site Scripting (XSS)
 
-**Description:** Attacker injects client-side scripts via stored or reflected user content.
+**Red Flags:** `innerHTML = userInput`; `dangerouslySetInnerHTML` without sanitization; missing CSP header.
 
-**Code Review Red Flags:**
-- `element.innerHTML = userInput` — executes embedded `<script>` tags
-- React `dangerouslySetInnerHTML={{ __html: userContent }}` without sanitization
-- Missing Content-Security-Policy header
-
-**TypeScript — Before/After:**
 ```typescript
-// BEFORE — stored XSS: comment body contains <script>document.cookie</script>
+// BEFORE — stored XSS
 element.innerHTML = comment.body;
 
 // AFTER — DOMPurify strips executable content
@@ -215,16 +172,10 @@ element.innerHTML = DOMPurify.sanitize(comment.body, { ALLOWED_TAGS: ['b', 'i', 
 
 ### 8. Insecure Deserialization
 
-**Description:** Deserializing attacker-controlled data can trigger remote code execution when object graphs are reconstructed without validation.
+**Red Flags:** `pickle.loads` on user input; `ObjectInputStream` from socket/upload; `yaml.load()` vs `yaml.safe_load()`.
 
-**Code Review Red Flags:**
-- `pickle.loads(data)` on network or user-supplied input
-- Java `ObjectInputStream` reading from a socket or upload
-- `yaml.load()` (unsafe) instead of `yaml.safe_load()`
-
-**Python — Before/After:**
 ```python
-# BEFORE — pickle executes arbitrary code on load
+# BEFORE — pickle executes arbitrary code
 import pickle
 obj = pickle.loads(request.data)
 
@@ -238,16 +189,11 @@ payload = TaskPayload.model_validate_json(request.data)
 
 ---
 
-### 9. Using Components with Known Vulnerabilities
+### 9. Vulnerable Components
 
-**Description:** Outdated libraries with published CVEs extend the attack surface without writing a single vulnerable line.
+**Red Flags:** No lockfile; `"*"`/`"latest"` version ranges; no audit step in CI.
 
-**Code Review Red Flags:**
-- No `package-lock.json` or `yarn.lock` — non-deterministic installs
-- `"*"` or `"latest"` version ranges in dependency files
-- No `npm audit` / `pip-audit` / `govulncheck` step in CI
-
-**Fix Strategy:** add to CI before deploy:
+**Fix:** add to CI:
 ```bash
 npm audit --audit-level=high   # Node.js
 pip-audit                      # Python
@@ -256,16 +202,10 @@ govulncheck ./...              # Go
 
 ---
 
-### 10. Insufficient Logging and Monitoring
+### 10. Insufficient Logging
 
-**Description:** Without audit trails for auth events, breaches go undetected and forensics are impossible.
+**Red Flags:** No logging on failed logins; `catch (err) {}` swallowing errors; missing correlation IDs.
 
-**Code Review Red Flags:**
-- No logging on failed login attempts — brute force invisible
-- `catch (err) {}` — errors silently swallowed, no alert triggered
-- Log entries missing correlation IDs — cross-service tracing impossible
-
-**TypeScript — Before/After:**
 ```typescript
 // BEFORE — no audit trail
 app.post('/login', async (req, res) => {
@@ -274,7 +214,7 @@ app.post('/login', async (req, res) => {
   res.json({ token: issueToken(user) });
 });
 
-// AFTER — structured audit log for every auth outcome
+// AFTER — structured audit log
 app.post('/login', async (req, res) => {
   const { email, password } = req.body;
   const user = await authService.login(email, password);
@@ -291,14 +231,8 @@ app.post('/login', async (req, res) => {
 
 ### 11. Secret Management
 
-**Description:** API keys or passwords embedded in source are exposed to all repo contributors and persist in git history.
+**Red Flags:** Hardcoded passwords in source; `.env` committed; secrets in Dockerfile `ARG`.
 
-**Code Review Red Flags:**
-- `const DB_PASSWORD = "supersecret"` anywhere in source
-- `.env` file committed (not in `.gitignore`)
-- Secrets in Dockerfile `ARG` instructions
-
-**TypeScript — Before/After:**
 ```typescript
 // BEFORE: const stripe = new Stripe("sk_live_abc123xyz");
 
@@ -312,32 +246,20 @@ const stripe = new Stripe(stripeKey);
 
 ### 12. CSRF Protection
 
-**Description:** Forged requests from malicious sites use the victim's authenticated session to perform unintended state changes.
+**Red Flags:** State-changing `GET` endpoints; missing CSRF middleware; `SameSite=None` without `Secure`.
 
-**Code Review Red Flags:**
-- `GET` endpoints that perform state changes (delete, transfer)
-- Missing CSRF middleware on form-based backends
-- `SameSite=None` cookies without `Secure` flag
-
-**TypeScript — After:**
 ```typescript
 import csurf from 'csurf';
 const csrf = csurf({ cookie: { httpOnly: true, sameSite: 'strict' } });
 app.post('/transfer', authenticate, csrf, transferFunds);
-// Form: <input type="hidden" name="_csrf" value="<%= csrfToken %>">
 ```
 
 ---
 
 ### 13. Rate Limiting
 
-**Description:** Unbounded API access enables credential brute-force, data scraping, or denial of service.
+**Red Flags:** Auth endpoints without throttle; rate limiting only at load balancer, not per-user.
 
-**Code Review Red Flags:**
-- Login, registration, and password-reset endpoints with no rate limit
-- Rate limiting only at the load balancer but not enforced per-user
-
-**TypeScript — After (10 attempts per IP per 15 minutes):**
 ```typescript
 import rateLimit from 'express-rate-limit';
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, standardHeaders: true });
@@ -348,21 +270,15 @@ app.post('/login', loginLimiter, loginHandler);
 
 ### 14. Input Validation
 
-**Description:** Trusting unvalidated external data allows malformed input to corrupt business logic or reach injection sinks.
+**Red Flags:** Frontend-only validation; unbounded numeric fields; no length caps on text fields.
 
-**Code Review Red Flags:**
-- Validation only on the frontend; server accepts any payload shape
-- Numeric fields unbounded: `qty: number` instead of `min(1).max(1000)`
-- No length caps on free-text fields — open to DoS via large payloads
-
-**TypeScript — Before/After:**
 ```typescript
-// BEFORE — trusts req.body shape; no type or range check
+// BEFORE — trusts req.body shape
 app.post('/orders', authenticate, async (req, res) => {
   res.json(await orderService.create(req.body));
 });
 
-// AFTER — Zod enforces shape, types, and ranges at the boundary
+// AFTER — Zod enforces shape, types, and ranges
 const CreateOrderSchema = z.object({
   items: z.array(z.object({ sku: z.string().regex(/^[A-Z0-9-]{3,20}$/), qty: z.number().int().min(1).max(1000) })).min(1).max(50),
   shippingAddress: z.string().min(10).max(500),
@@ -378,22 +294,22 @@ app.post('/orders', authenticate, async (req, res) => {
 
 ## Security Anti-Patterns
 
-| Anti-Pattern | Description | Fix |
-|-------------|-------------|-----|
-| **Security by Obscurity** | Hiding endpoint paths instead of enforcing auth | Enforce authentication regardless of URL shape |
-| **Client-Side Auth** | Authorization checks only in JavaScript/UI | All access control decisions made server-side |
-| **Regex as Security** | Regex alone to prevent injection | Parameterized queries and encoding are the fix; regex supplements |
-| **Trust the Referer** | Validating origin via `Referer` header | Headers are attacker-controlled; use CSRF tokens or SameSite cookies |
-| **Boolean `isAdmin` in JWT** | Trusting role claims from client-supplied token | Load roles from the database on each request, not from the token |
-| **Catch-and-Log-Secrets** | Exception message includes SQL with credentials | Sanitize error messages before logging; never log raw query params |
-| **Permissive Deserialize** | `JSON.parse(input)` drives business logic without schema | Validate deserialized data against a strict schema before use |
-| **HTTP for Internal APIs** | Internal service calls over plain HTTP | Use mutual TLS or HTTPS even for internal traffic |
+| Anti-Pattern | Fix |
+|-------------|-----|
+| **Security by Obscurity** — hiding URLs instead of auth | Enforce authentication regardless of URL |
+| **Client-Side Auth** — checks only in UI | All access control server-side |
+| **Regex as Security** — regex alone vs injection | Parameterized queries; regex supplements |
+| **Trust the Referer** — origin via header | CSRF tokens or SameSite cookies |
+| **Boolean `isAdmin` in JWT** — role claims from token | Load roles from DB each request |
+| **Catch-and-Log-Secrets** — SQL in exceptions | Sanitize error messages before logging |
+| **Permissive Deserialize** — `JSON.parse` without schema | Validate against strict schema first |
+| **HTTP for Internal APIs** — plain HTTP internally | Mutual TLS or HTTPS even internally |
 
 ---
 
 ## Cross-References
 
-- `review-code-quality-process` — embed this skill's red flags in the PR checklist; security review before any "LGTM"
-- `error-handling-patterns` — catch-and-swallow errors (Pokemon Exception Handling) are the direct cause of Insufficient Logging (area 10)
-- `review-solid-clean-code` — authorization logic scattered across handlers (not centralized in middleware) is a Broken Access Control signal
-- `anti-patterns-catalog` — God Object applied to auth: monolithic auth modules with unclear boundaries are harder to audit for privilege escalation
+- `review-code-quality-process` — embed red flags in PR checklist
+- `error-handling-patterns` — catch-and-swallow causes Insufficient Logging (area 10)
+- `review-solid-clean-code` — scattered auth logic signals Broken Access Control
+- `anti-patterns-catalog` — monolithic auth modules harder to audit for privilege escalation

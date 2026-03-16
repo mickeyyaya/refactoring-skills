@@ -7,7 +7,7 @@ description: Use when reviewing code for error handling correctness — covers R
 
 ## Overview
 
-Swallowed exceptions hide production failures, missing retries cause cascading outages, and overly broad catches mask the real problem. Use this guide during code review to catch error handling hazards before they ship. Each pattern lists specific red flags to spot in a PR diff.
+Swallowed exceptions hide production failures, missing retries cause cascading outages, and overly broad catches mask the real problem. Use this guide during code review to catch error handling hazards before they ship.
 
 **When to use:** Reviewing code that calls external services, databases, file systems, or async operations; evaluating retry/circuit-breaker logic; any code touching user input or third-party data.
 
@@ -32,20 +32,18 @@ Swallowed exceptions hide production failures, missing retries cause cascading o
 
 ### 1. Result/Either Types
 
-**Intent:** Return success or error as a typed value rather than throwing, forcing callers to handle both outcomes explicitly. Best for internal APIs and pipelines where errors are expected.
-
-**Code Review Red Flags:**
+**Red Flags:**
 - Returned error values ignored: `result, _ := doSomething()` in Go
 - `Result` or `Either` returned but `.ok` / `.isOk()` never checked
-- Mixing exceptions and Result types in the same layer — callers must know which to catch
+- Mixing exceptions and Result types in the same layer
 - Unwrapping without checking: `.unwrap()` (Rust) panics on `Err`
 
-**TypeScript — Before/After:**
+**TypeScript:**
 ```typescript
 // BEFORE — throws on failure; caller must know to catch
 function parseConfig(raw: string): Config { return JSON.parse(raw); }
 
-// AFTER — error is part of the return type; caller is forced to handle it
+// AFTER — error is part of the return type
 type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };
 function parseConfig(raw: string): Result<Config, string> {
   try { return { ok: true, value: JSON.parse(raw) as Config }; }
@@ -58,7 +56,7 @@ if (!result.ok) { logger.error(result.error); process.exit(1); }
 **Rust — `?` propagates `Err` automatically:**
 ```rust
 fn start() -> Result<(), Box<dyn std::error::Error>> {
-    let config = parse_config(raw_input)?;  // ? short-circuits on Err
+    let config = parse_config(raw_input)?;
     run_server(config)
 }
 ```
@@ -78,17 +76,15 @@ func parseConfig(raw string) (Config, error) {
 
 ### 2. Exception Hierarchies
 
-**Intent:** Organize exceptions into a typed tree so callers catch at the right specificity — domain, infrastructure, or unexpected — without over-catching or under-catching.
+**Red Flags:**
+- Catching `Exception` / `Throwable` — also catches `OutOfMemoryError`
+- `throw new Error("something went wrong")` — untyped, unclassifiable
+- Catch-and-rethrow without wrapping: loses context, causes duplicate logs
+- Empty catch block: `catch (IOException e) {}`
 
-**Code Review Red Flags:**
-- Catching `Exception` / `Throwable` — also catches `OutOfMemoryError`, `StackOverflowError`
-- `throw new Error("something went wrong")` — untyped, unclassifiable by callers
-- Catch-and-rethrow without wrapping: loses original context and causes duplicate logs
-- Empty catch block: `catch (IOException e) {}` — error silently discarded
-
-**Java — Before/After:**
+**Java:**
 ```java
-// BEFORE — overly broad; log-and-throw causes duplicate logs upstream
+// BEFORE — overly broad; log-and-throw causes duplicate logs
 try { return userRepository.findById(id); }
 catch (Exception e) { log.error("error", e); throw e; }
 
@@ -100,34 +96,31 @@ try {
     return userRepository.findById(id)
         .orElseThrow(() -> new NotFoundException("User not found: " + id));
 } catch (DataAccessException e) {
-    throw new ExternalServiceException("DB unavailable", e);  // wrap; don't re-log
+    throw new ExternalServiceException("DB unavailable", e);
 }
 ```
 
-**Python — After (typed hierarchy):**
+**Python:**
 ```python
 class AppError(Exception): pass
-class NotFoundError(AppError): pass       # maps to 404
-class ExternalServiceError(AppError): pass  # retryable
+class NotFoundError(AppError): pass
+class ExternalServiceError(AppError): pass
 
 try:
     user = repo.find_user(user_id)
 except NotFoundError: return Response(status=404)
 except ExternalServiceError as e:
-    logger.warning("unavailable: %s", e); raise  # let retry middleware handle
+    logger.warning("unavailable: %s", e); raise
 ```
 
 ---
 
 ### 3. Error Propagation
 
-**Intent:** Errors flow upward through layers, with each layer adding context — without swallowing the error or leaking internal details to API consumers.
-
-**Code Review Red Flags:**
+**Red Flags:**
 - `catch (e) { return null; }` — error swallowed, caller gets `null` with no explanation
-- Stack trace lost by re-throwing a new exception without chaining the cause
+- Stack trace lost by re-throwing without chaining the cause
 - Raw SQL, file paths, or stack traces visible in API error responses
-- Internal database errors surfaced directly to clients
 
 **Go — context wrapping:**
 ```go
@@ -140,8 +133,6 @@ func GetUser(id string) (User, error) {
     if err != nil { return User{}, fmt.Errorf("GetUser(%s): %w", id, err) }
     return user, nil
 }
-// Error chain: "GetUser(abc123): QueryUser: dial tcp: connection refused"
-// Caller can check: errors.Is(err, db.ErrNotFound)
 ```
 
 **TypeScript — service wraps; controller translates to safe response:**
@@ -163,15 +154,13 @@ app.get('/users/:id', async (req, res) => {
 
 ### 4. Retry with Exponential Backoff
 
-**Intent:** Retry transient failures with increasing delays between attempts to avoid amplifying load on a struggling service. Apply to external HTTP calls, DB connections, and message queue operations.
-
-**Code Review Red Flags:**
-- Immediate retry loop with no delay — hammers a struggling service, worsens the outage
-- No maximum retry count — infinite retry loops that never give up
-- Retrying non-idempotent operations (`POST /charge`) — may cause duplicate processing
+**Red Flags:**
+- Immediate retry loop with no delay — hammers a struggling service
+- No maximum retry count — infinite loops
+- Retrying non-idempotent operations (`POST /charge`) — duplicate processing
 - Catching all error types for retry — permanent errors (400, 404) should not be retried
 
-**TypeScript — After:**
+**TypeScript:**
 ```typescript
 async function withRetry<T>(
   fn: () => Promise<T>,
@@ -181,19 +170,18 @@ async function withRetry<T>(
     try { return await fn(); }
     catch (err) {
       if (attempt === maxAttempts || !retryable(err)) throw err;
-      const delay = baseDelayMs * 2 ** (attempt - 1) + Math.random() * 100; // jitter
+      const delay = baseDelayMs * 2 ** (attempt - 1) + Math.random() * 100;
       await new Promise(r => setTimeout(r, delay));
     }
   }
   throw new Error('unreachable');
 }
-// Only retry 429/503, not 400/404
 const user = await withRetry(() => fetchUser(id), {
   retryable: (e) => e instanceof HttpError && [429, 503].includes(e.status),
 });
 ```
 
-**Python — After (same pattern):**
+**Python:**
 ```python
 def with_retry(fn, max_attempts=3, base_delay=0.2, retryable=lambda e: True):
     for attempt in range(1, max_attempts + 1):
@@ -203,21 +191,19 @@ def with_retry(fn, max_attempts=3, base_delay=0.2, retryable=lambda e: True):
             time.sleep(base_delay * 2 ** (attempt - 1) + random.uniform(0, 0.1))
 ```
 
-Cross-reference: `concurrency-patterns` — Async/Await Pitfalls for fire-and-forget retry tasks that swallow errors.
+Cross-reference: `concurrency-patterns` — Async/Await Pitfalls for fire-and-forget retry tasks.
 
 ---
 
 ### 5. Circuit Breaker
 
-**Intent:** After a dependency fails repeatedly, stop calling it and return a fast failure until it recovers — preventing cascading failures. States: Closed → Open → Half-Open.
-
-**Code Review Red Flags:**
-- HTTP calls with no timeout — a slow dependency hangs threads indefinitely
+**Red Flags:**
+- HTTP calls with no timeout — slow dependency hangs threads indefinitely
 - No circuit breaker on microservice calls — one slow service takes down callers
-- No fallback when circuit is open — errors cascade to the client
-- Circuit breaker threshold never tuned for actual traffic patterns
+- No fallback when circuit is open
+- Threshold never tuned for actual traffic patterns
 
-**TypeScript — minimal implementation:**
+**TypeScript:**
 ```typescript
 class CircuitBreaker {
   private failures = 0; private nextAttempt = 0;
@@ -240,7 +226,7 @@ class CircuitBreaker {
 }
 ```
 
-**Java — Resilience4j (production-ready):**
+**Java — Resilience4j:**
 ```java
 Try.ofSupplier(CircuitBreaker.decorateSupplier(CircuitBreaker.ofDefaults("svc"),
     () -> paymentClient.charge(req)))
@@ -251,27 +237,25 @@ Try.ofSupplier(CircuitBreaker.decorateSupplier(CircuitBreaker.ofDefaults("svc"),
 
 ### 6. Fail-Fast
 
-**Intent:** Validate inputs immediately at system boundaries — reject bad data before it propagates into business logic or storage.
+**Red Flags:**
+- Validation buried deep in call chain — bad data reaches the database first
+- `null`/`undefined` checks scattered through business logic instead of validated at entry
+- No input validation on public API endpoints
 
-**Code Review Red Flags:**
-- Validation logic buried deep in a call chain — bad data reaches the database first
-- `null` / `undefined` checks scattered through business logic instead of validated once at entry
-- No input validation on public API endpoints — trusting caller-provided data
-
-**TypeScript — Before/After (schema validation at boundary):**
+**TypeScript:**
 ```typescript
 // BEFORE — undefined userId propagates through 3 calls before crashing
 async function processOrder(order: Order) {
   return chargeCard((await getUser(order.userId)).card, calculateTotal(order.items));
 }
 
-// AFTER — Zod schema rejects bad input immediately with field-level detail
+// AFTER — Zod schema rejects bad input immediately
 const OrderSchema = z.object({
   userId: z.string().uuid(),
   items: z.array(z.object({ sku: z.string(), qty: z.number().int().positive() })).min(1),
 });
 async function processOrder(raw: unknown) {
-  const order = OrderSchema.parse(raw);  // throws ZodError at the entry point
+  const order = OrderSchema.parse(raw);
   return chargeCard((await getUser(order.userId)).card, calculateTotal(order.items));
 }
 ```
@@ -289,15 +273,13 @@ func ProcessOrder(order Order) error {
 
 ### 7. Graceful Degradation
 
-**Intent:** When a non-critical dependency fails, return a partial result or fallback rather than failing the entire request. Apply to optional enrichment features (recommendations, personalization).
-
-**Code Review Red Flags:**
+**Red Flags:**
 - Optional service failure causes a 500 on the core endpoint
 - No timeout on optional service calls — slow dependency stalls the entire response
 - Fallback returns misleading data (stale cache not labeled as such)
-- No monitoring when degraded mode is active — silent degradation masks outages
+- No monitoring when degraded mode is active
 
-**TypeScript — Before/After:**
+**TypeScript:**
 ```typescript
 // BEFORE — optional service failure fails the entire endpoint
 async function getProduct(id: string): Promise<ProductPage> {
@@ -321,18 +303,15 @@ async function getProduct(id: string): Promise<ProductPage> {
 
 ### 8. Error Boundaries
 
-**Intent:** Contain errors at defined boundaries so that a failure in one subsystem does not cascade into an unrecoverable crash of the entire application.
-
-**Code Review Red Flags:**
-- No global `unhandledRejection` / `uncaughtException` handler — Node.js process crashes silently
+**Red Flags:**
+- No global `unhandledRejection` / `uncaughtException` handler — process crashes silently
 - React component tree with no `ErrorBoundary` — one render error unmounts the entire UI
-- Message consumer crashes on a bad message without acknowledging or dead-lettering it
+- Message consumer crashes on a bad message without dead-lettering it
 
-**TypeScript (Node.js) — After:**
+**TypeScript (Node.js):**
 ```typescript
 process.on('unhandledRejection', (r) => { logger.error('Unhandled rejection', r); process.exit(1); });
 process.on('uncaughtException', (e) => { logger.error('Uncaught exception', e); process.exit(1); });
-// Express middleware — last-resort error boundary
 app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
   logger.error('Request error', { err, path: req.path });
   res.status(500).json({ error: 'Internal server error' });
@@ -361,21 +340,18 @@ Cross-reference: `concurrency-patterns` — Async/Await Pitfalls for fire-and-fo
 
 ### 9. Null Object / Optional
 
-**Intent:** Eliminate null-check clutter and NPE crashes by representing absence with a typed container or safe default object.
-
-**Code Review Red Flags:**
+**Red Flags:**
 - Method returns `null` instead of `Optional` — callers forget to null-check
-- `Optional.get()` called without `isPresent()` — same risk as direct null dereference
+- `Optional.get()` called without `isPresent()` — same risk as null dereference
 - `?.` chains so long that the failure point is invisible
 
-**Java — Before/After:**
+**Java:**
 ```java
 // BEFORE — null return; caller forgets check, NPE in production
 public User findUser(String id) { return userMap.get(id); }
 
 // AFTER — Optional forces caller to handle absence
 public Optional<User> findUser(String id) { return Optional.ofNullable(userMap.get(id)); }
-// Caller: safe pipeline, no NPE
 findUser(id).map(User::getName).orElse("Anonymous");
 ```
 
@@ -391,14 +367,12 @@ match find_user(id) {
 
 ### 10. Dead Letter Queue
 
-**Intent:** When a message cannot be processed after retries, route it to a separate queue for inspection and replay rather than dropping it silently. Applies to Kafka, SQS, RabbitMQ, and background job processors.
-
-**Code Review Red Flags:**
+**Red Flags:**
 - Failed messages acknowledged and discarded — data loss with no audit trail
 - No retry limit — bad message retried indefinitely, blocking the queue
-- DLQ exists but is never monitored or drained — unprocessable messages accumulate silently
+- DLQ exists but is never monitored — unprocessable messages accumulate silently
 
-**TypeScript — After (SQS):**
+**TypeScript (SQS):**
 ```typescript
 async function processMessage(msg: SQSMessage): Promise<void> {
   const attempts = Number(msg.Attributes?.ApproximateReceiveCount ?? 1);
@@ -421,24 +395,24 @@ Cross-reference: `concurrency-patterns` — Producer-Consumer for bounded queue 
 
 | Anti-Pattern | Description | Fix |
 |-------------|-------------|-----|
-| **Pokemon Exception Handling** | `catch(e) {}` — catches everything, handles nothing | Handle specific errors; re-throw or log what you cannot handle |
-| **Error Swallowing** | `catch(e) { log(e); }` without re-throwing | Decide: recover, rethrow, or convert to Result — never silently absorb |
-| **String-Typed Errors** | `throw "something went wrong"` — no type, no stack trace | Always throw typed `Error` objects or domain-specific subclasses |
-| **Control Flow via Exceptions** | Using try/catch for expected conditions (parse, lookup) | Use Result types or explicit checks for expected failure paths |
-| **Log and Throw** | Log error then re-throw — causes duplicate log entries | Log ONCE at the boundary; lower layers wrap and rethrow without logging |
-| **Overly Broad Catch** | Catching `Exception` when only `IOException` is expected | Catch the most specific type that covers the failure mode |
-| **Silent Null Return** | Returning `null` from a method that "failed" | Return `Optional`, `Result`, or throw a typed exception |
-| **Retry Without Idempotency** | Retrying `POST /charge` — customer charged twice | Verify idempotency before adding retry; use idempotency keys |
+| **Pokemon Exception Handling** | `catch(e) {}` — catches everything, handles nothing | Handle specific errors; re-throw what you cannot handle |
+| **Error Swallowing** | `catch(e) { log(e); }` without re-throwing | Decide: recover, rethrow, or convert to Result |
+| **String-Typed Errors** | `throw "something went wrong"` | Always throw typed `Error` objects |
+| **Control Flow via Exceptions** | Using try/catch for expected conditions | Use Result types or explicit checks |
+| **Log and Throw** | Log then re-throw — duplicate log entries | Log ONCE at the boundary; lower layers wrap without logging |
+| **Overly Broad Catch** | Catching `Exception` when only `IOException` expected | Catch the most specific type |
+| **Silent Null Return** | Returning `null` from a method that "failed" | Return `Optional`, `Result`, or throw typed exception |
+| **Retry Without Idempotency** | Retrying `POST /charge` — double charge | Verify idempotency; use idempotency keys |
 
 **Pokemon Exception Handling — TypeScript fix:**
 ```typescript
-// WRONG: try { return await fetchUser(id); } catch (e) {}  // swallows all errors
+// WRONG: try { return await fetchUser(id); } catch (e) {}
 // CORRECT — handle expected, propagate the rest
 async function loadUser(id: string): Promise<User | null> {
   try { return await fetchUser(id); }
   catch (err) {
-    if (err instanceof NotFoundError) return null;  // expected — safe to swallow
-    throw err;                                       // unexpected — propagate up
+    if (err instanceof NotFoundError) return null;
+    throw err;
   }
 }
 ```
@@ -447,7 +421,7 @@ async function loadUser(id: string): Promise<User | null> {
 
 ## Cross-References
 
-- `concurrency-patterns` — Async/Await Pitfalls: unobserved promise rejections and fire-and-forget tasks are a critical intersection of async and error handling
-- `refactor-functional-patterns` — Monadic error handling: `map`, `flatMap`, `chain` over Result/Option types for pipeline-style error propagation
-- `review-code-quality-process` — Error handling checklist: this skill provides the patterns; the process guide provides the review workflow
-- `detect-code-smells` — "Shotgun Surgery" on error handling: scattered try/catch blocks all doing the same thing indicate a missing centralized error boundary
+- `concurrency-patterns` — Async/Await Pitfalls: unobserved promise rejections and fire-and-forget tasks
+- `refactor-functional-patterns` — Monadic error handling: `map`, `flatMap`, `chain` over Result/Option types
+- `review-code-quality-process` — Error handling checklist: patterns here, review workflow there
+- `detect-code-smells` — "Shotgun Surgery": scattered try/catch blocks indicate a missing centralized error boundary
