@@ -7,14 +7,13 @@ description: Use when reviewing code for object creation problems or structural 
 
 ## Overview
 
-GoF patterns are proven solutions to recurring object-oriented design problems. Creational patterns control how objects are created. Structural patterns control how objects are composed into larger structures. Recognizing which pattern is — or should be — present is a core code review skill.
+Creational patterns control how objects are created. Structural patterns control how objects are composed into larger structures. Recognizing which pattern is — or should be — present is a core code review skill.
 
 ## When to Use
 
-- Reviewing code where object instantiation logic is scattered or tightly coupled to concrete classes
-- Reviewing code where class hierarchies are becoming difficult to extend independently
-- Identifying missing abstraction that causes duplication or fragility
-- Recommending a named pattern so the team shares vocabulary for the change
+- Object instantiation logic scattered or tightly coupled to concrete classes
+- Class hierarchies becoming difficult to extend independently
+- Missing abstraction causing duplication or fragility
 
 ## Quick Reference
 
@@ -23,15 +22,15 @@ GoF patterns are proven solutions to recurring object-oriented design problems. 
 | Factory Method | Creational | Subclasses choose which class to instantiate | `new ConcreteClass()` scattered across callers |
 | Abstract Factory | Creational | Create families of related objects | Mixed product-family objects in one branch |
 | Builder | Creational | Construct complex objects step by step | Telescoping constructors or long optional-param lists |
-| Prototype | Creational | Clone objects without coupling to their class | Manual field-by-field copy code |
+| Prototype | Creational | Clone objects without coupling to class | Manual field-by-field copy code |
 | Singleton | Creational | One shared instance (use sparingly) | Global state hiding dependencies |
 | Adapter | Structural | Bridge incompatible interfaces | Conversion logic duplicated at every call site |
 | Bridge | Structural | Vary abstraction and implementation independently | Exponential subclass explosion |
-| Composite | Structural | Treat leaves and composites uniformly | `instanceof` checks to distinguish leaf vs. group |
-| Decorator | Structural | Add behavior dynamically without subclassing | Subclass explosion for every feature combination |
-| Facade | Structural | Simplified interface to a complex subsystem | Caller knows too many internal classes |
-| Flyweight | Structural | Share fine-grained objects to reduce memory | Thousands of near-identical objects with redundant state |
-| Proxy | Structural | Control access to another object | Cross-cutting concerns duplicated across many callers |
+| Composite | Structural | Treat leaves and composites uniformly | `instanceof` checks for leaf vs. group |
+| Decorator | Structural | Add behavior dynamically without subclassing | Subclass explosion for feature combinations |
+| Facade | Structural | Simplified interface to complex subsystem | Caller knows too many internal classes |
+| Flyweight | Structural | Share fine-grained objects to reduce memory | Thousands of near-identical objects |
+| Proxy | Structural | Control access to another object | Cross-cutting concerns duplicated across callers |
 
 ---
 
@@ -41,9 +40,7 @@ GoF patterns are proven solutions to recurring object-oriented design problems. 
 
 **Intent:** Define an interface for creating an object; let subclasses decide which class to instantiate.
 
-**When to Use:** Type of object unknown until runtime; subclasses should control what they create.
-
-**When NOT to Use:** Object creation is simple and type never varies — a plain constructor is clearer. Avoid adding another inheritance layer when the hierarchy is already complex.
+**Use when** type is unknown until runtime and subclasses should control creation. **Skip when** creation is simple and type never varies, or hierarchy is already complex.
 
 ```typescript
 abstract class Notifier {
@@ -54,10 +51,7 @@ class EmailNotifier extends Notifier { createChannel() { return new EmailChannel
 class SmsNotifier extends Notifier   { createChannel() { return new SmsChannel(); }   }
 ```
 
-**Code Review Red Flags**
-- `new ConcreteClass()` inside business logic — creation should live in a factory
-- Adding a new type requires editing an existing `if/switch` block (Open/Closed violation)
-- Tests cannot swap the created object without changing production code
+**Red Flags:** `new ConcreteClass()` in business logic; adding a type requires editing existing `if/switch` (Open/Closed violation); tests can't swap created object.
 
 **Refactoring link:** Replace Constructor with Factory Method (`refactor-simplifying-method-calls`)
 
@@ -65,11 +59,9 @@ class SmsNotifier extends Notifier   { createChannel() { return new SmsChannel()
 
 ### 2. Abstract Factory
 
-**Intent:** Create families of related objects without specifying their concrete classes.
+**Intent:** Create families of related objects without specifying concrete classes.
 
-**When to Use:** System must work with multiple product families (e.g., light/dark theme, AWS/GCP). Products from the same family must be used together.
-
-**When NOT to Use:** Only one product family exists. Adding new product *types* requires changing all factory interfaces — use Factory Method instead.
+**Use when** system must work with multiple product families used together (light/dark theme, AWS/GCP). **Skip when** only one family exists or adding new product *types* requires changing all factory interfaces.
 
 ```typescript
 interface UIFactory { createButton(): Button; createCheckbox(): Checkbox; }
@@ -79,20 +71,15 @@ class MacUIFactory implements UIFactory {
 }
 ```
 
-**Code Review Red Flags**
-- Objects from different families mixed together inside a single `if (platform === 'mac')` branch
-- Family selection repeated in every file that creates widgets — factory not centralized
-- No interface tying the family together
+**Red Flags:** objects from different families mixed in one `if (platform)` branch; family selection repeated everywhere; no interface tying the family together.
 
 ---
 
 ### 3. Builder
 
-**Intent:** Construct a complex object step by step, separating construction from representation.
+**Intent:** Construct complex objects step by step, separating construction from representation.
 
-**When to Use:** Object has many optional parameters (telescoping constructor problem); step-by-step construction must be validated or ordered.
-
-**When NOT to Use:** Object is simple — a plain constructor or object literal is cleaner.
+**Use when** many optional parameters (telescoping constructor) or ordered construction needing validation. **Skip when** object is simple enough for a plain constructor.
 
 ```typescript
 class QueryBuilder {
@@ -103,10 +90,7 @@ class QueryBuilder {
 }
 ```
 
-**Code Review Red Flags**
-- Constructor with 5+ parameters, many nullable or in a fixed-but-confusing order
-- Object escapes in a partially-initialized state — no terminal `build()` step enforces completeness
-- Caller passes `null`/`undefined` for parameters they don't need
+**Red Flags:** constructor with 5+ params, many nullable; object escapes partially initialized (no terminal `build()`); caller passes `null` for unneeded params.
 
 **Refactoring link:** Introduce Parameter Object (`refactor-simplifying-method-calls`)
 
@@ -116,9 +100,7 @@ class QueryBuilder {
 
 **Intent:** Create new objects by cloning a prototypical instance.
 
-**When to Use:** Object creation is expensive (DB/network); need copies with minor variation.
-
-**When NOT to Use:** Objects contain non-cloneable resources (file handles, connections). Shallow copy is silently wrong because nested objects are shared.
+**Use when** creation is expensive (DB/network) and copies need minor variation. **Skip when** objects contain non-cloneable resources or shallow copy silently shares nested mutable objects.
 
 ```typescript
 class UserProfile {
@@ -126,20 +108,15 @@ class UserProfile {
 }
 ```
 
-**Code Review Red Flags**
-- Manual field-by-field copy repeated at call sites instead of a `clone()` method
-- Shallow spread (`{ ...obj }`) on objects with nested mutable reference types
-- Clone logic misses fields added after the pattern was first introduced
+**Red Flags:** manual field-by-field copy at call sites; shallow spread on objects with nested mutables; clone logic misses fields added later.
 
 ---
 
 ### 5. Singleton
 
-**Intent:** Ensure a class has only one instance and provide a global access point.
+**Intent:** Ensure one instance with a global access point.
 
-**When to Use:** Truly shared, managed resources — logger, config reader, connection pool — only when dependency injection is genuinely impractical.
-
-**When NOT to Use:** Prefer DI almost always. Singletons make testing painful, hide dependencies, and complicate concurrent environments.
+**Use when** truly shared managed resources (logger, config, connection pool) only when DI is genuinely impractical. **Skip when** possible — prefer DI. Singletons make testing painful and hide dependencies.
 
 ```typescript
 class Logger {
@@ -149,10 +126,7 @@ class Logger {
 }
 ```
 
-**Code Review Red Flags**
-- `Singleton.getInstance()` called inside business logic — hides a dependency; inject it instead
-- Tests cannot reset the singleton between runs — leads to test pollution
-- Multiple Singletons coordinating with each other — consider a proper service layer
+**Red Flags:** `Singleton.getInstance()` in business logic (inject instead); tests can't reset between runs; multiple Singletons coordinating (use a service layer).
 
 ---
 
@@ -160,11 +134,9 @@ class Logger {
 
 ### 6. Adapter
 
-**Intent:** Convert the interface of a class into another interface that clients expect.
+**Intent:** Convert one interface into another that clients expect.
 
-**When to Use:** Integrating a third-party library or legacy system whose interface you cannot change.
-
-**When NOT to Use:** You control both interfaces — refactor one directly. The mismatch is so large the adapter becomes its own complex system (use an Anti-Corruption Layer).
+**Use when** integrating third-party/legacy systems you can't change. **Skip when** you control both interfaces (refactor directly), or mismatch is so large the adapter becomes its own system.
 
 ```typescript
 class PaymentGatewayAdapter implements PaymentProcessor {
@@ -175,10 +147,7 @@ class PaymentGatewayAdapter implements PaymentProcessor {
 }
 ```
 
-**Code Review Red Flags**
-- Conversion logic duplicated at every call site instead of centralized in one adapter
-- Adapter accumulates state or business logic — it should be a thin translation layer only
-- Adapter wraps an adapter wraps an adapter — indicates mismatched abstractions at a deeper level
+**Red Flags:** conversion logic duplicated at every call site; adapter accumulates state or business logic (should be thin translation only); adapter-wrapping-adapter chains.
 
 **Refactoring link:** Extract Class, Move Method (`refactor-moving-features`)
 
@@ -186,11 +155,9 @@ class PaymentGatewayAdapter implements PaymentProcessor {
 
 ### 7. Bridge
 
-**Intent:** Decouple an abstraction from its implementation so the two can vary independently.
+**Intent:** Decouple abstraction from implementation so both vary independently.
 
-**When to Use:** Two independent dimensions of variation would cause a subclass explosion (2 shapes × 3 renderers = 6 subclasses without Bridge).
-
-**When NOT to Use:** Only one implementation exists — the indirection has no benefit.
+**Use when** two independent dimensions of variation would cause subclass explosion. **Skip when** only one implementation exists.
 
 ```typescript
 class Circle extends Shape {
@@ -199,10 +166,7 @@ class Circle extends Shape {
 }
 ```
 
-**Code Review Red Flags**
-- Class names of the form `WindowsCircle`, `LinuxCircle`, `MacCircle` — subclass explosion
-- Changing the backend requires touching every shape subclass
-- Abstraction and implementation mixed in the same hierarchy
+**Red Flags:** names like `WindowsCircle`, `LinuxCircle` (subclass explosion); changing backend touches every shape subclass; abstraction and implementation mixed in same hierarchy.
 
 ---
 
@@ -210,9 +174,7 @@ class Circle extends Shape {
 
 **Intent:** Compose objects into tree structures; treat leaves and composites uniformly.
 
-**When to Use:** Tree-like structures — file systems, UI component trees, expression trees.
-
-**When NOT to Use:** Hierarchy is not truly recursive; forcing a common interface on very different types bloats the interface with optional methods.
+**Use when** tree-like structures (file systems, UI trees, expression trees). **Skip when** hierarchy isn't truly recursive, or forcing a common interface bloats it with optional methods.
 
 ```typescript
 interface FileSystemItem { name(): string; size(): number; }
@@ -220,20 +182,15 @@ class File      implements FileSystemItem { size() { return this._size; } }
 class Directory implements FileSystemItem { size() { return this.children.reduce((s, c) => s + c.size(), 0); } }
 ```
 
-**Code Review Red Flags**
-- `instanceof` checks to distinguish leaf from composite — the pattern eliminates these
-- Composite children exposed as a public mutable array
-- Leaf classes forced to implement `add()`/`remove()` with no-ops or thrown errors
+**Red Flags:** `instanceof` checks for leaf vs. composite; children exposed as mutable array; leaves forced to implement `add()`/`remove()` with no-ops.
 
 ---
 
 ### 9. Decorator
 
-**Intent:** Attach additional responsibilities to an object dynamically; a flexible alternative to subclassing.
+**Intent:** Attach responsibilities dynamically; flexible alternative to subclassing.
 
-**When to Use:** Add behavior to individual objects without affecting others; behavior combinations would cause a subclass explosion if done via inheritance.
-
-**When NOT to Use:** The decorated interface is large — maintaining it in every wrapper is tedious. Order of decoration matters in non-obvious ways that aren't enforced.
+**Use when** adding behavior to individual objects without affecting others, avoiding subclass explosion. **Skip when** decorated interface is large (tedious to maintain wrappers) or decoration order matters non-obviously.
 
 ```typescript
 class CompressionDecorator implements DataSource {
@@ -243,10 +200,7 @@ class CompressionDecorator implements DataSource {
 }
 ```
 
-**Code Review Red Flags**
-- Subclasses like `CompressedEncryptedFileDataSource` — Decorator eliminates this explosion
-- Decorator modifies wrapped object's state instead of delegating
-- Stack of decorators applied inconsistently across call sites
+**Red Flags:** subclasses like `CompressedEncryptedFileDataSource`; decorator modifies wrapped object's state instead of delegating; decorators applied inconsistently across call sites.
 
 **Refactoring link:** Replace Inheritance with Delegation (`refactor-generalization`)
 
@@ -254,11 +208,9 @@ class CompressionDecorator implements DataSource {
 
 ### 10. Facade
 
-**Intent:** Provide a simplified interface to a complex subsystem.
+**Intent:** Simplified interface to a complex subsystem.
 
-**When to Use:** Callers need only a small slice of a subsystem's capabilities; layering helps separate external API from internal implementation.
-
-**When NOT to Use:** The simplification hides behavior callers legitimately need to control. Facade is growing into a God Object — it should delegate, not accumulate logic.
+**Use when** callers need only a small slice of subsystem capabilities. **Skip when** simplification hides behavior callers need, or Facade grows into a God Object.
 
 ```typescript
 class VideoConverter {
@@ -270,20 +222,15 @@ class VideoConverter {
 }
 ```
 
-**Code Review Red Flags**
-- Callers import 5+ internal subsystem classes for a common workflow — missing facade
-- Facade contains business logic instead of delegating
-- Facade is the only entry point, removing flexibility for advanced callers
+**Red Flags:** callers import 5+ internal subsystem classes for common workflow; Facade contains business logic instead of delegating; Facade is the only entry point, removing flexibility.
 
 ---
 
 ### 11. Flyweight
 
-**Intent:** Use sharing to support large numbers of fine-grained objects efficiently.
+**Intent:** Share fine-grained objects to reduce memory usage.
 
-**When to Use:** Thousands-to-millions of objects that share most of their state, and memory usage is a measured problem.
-
-**When NOT to Use:** Object count is not large enough to matter. Objects carry significant unique state that cannot be shared.
+**Use when** thousands-to-millions of objects sharing most state, with measured memory pressure. **Skip when** object count isn't large enough or objects carry significant unique state.
 
 ```typescript
 class CharacterStyleFactory {
@@ -295,35 +242,27 @@ class CharacterStyleFactory {
 }
 ```
 
-**Code Review Red Flags**
-- Applied without a memory profile — premature Flyweight adds complexity with no measurable gain
-- Extrinsic (context-specific) state stored inside the flyweight — breaks sharing
-- Factory returns mutable objects — one caller corrupts shared state for all others
+**Red Flags:** applied without memory profile (premature complexity); extrinsic state stored inside flyweight (breaks sharing); factory returns mutable objects (one caller corrupts shared state).
 
 ---
 
 ### 12. Proxy
 
-**Intent:** Provide a placeholder that controls access to another object.
+**Intent:** Placeholder controlling access to another object (lazy init, access control, caching, logging).
 
-**When to Use:** Lazy initialization (Virtual Proxy), access control (Protection Proxy), caching (Caching Proxy), logging/audit (Logging Proxy).
-
-**When NOT to Use:** The framework already provides middleware or interceptors — don't reinvent them. Avoid in hot paths where the indirection latency is unacceptable.
+**Use when** cross-cutting concerns need centralization. **Skip when** framework provides middleware/interceptors, or indirection latency matters in hot paths.
 
 ```typescript
 class LazyImage implements ImageLoader {
   private real: RealImage | null = null;
   display(): void {
-    this.real ??= new RealImage(this.path); // create only on first use
+    this.real ??= new RealImage(this.path);
     this.real.display();
   }
 }
 ```
 
-**Code Review Red Flags**
-- Logging, auth checks, or caching copy-pasted across many service methods — a single Proxy handles it
-- Proxy does not implement the same interface as the subject — callers cannot substitute it transparently
-- Proxy accumulates business logic over time instead of delegating cleanly
+**Red Flags:** logging/auth/caching copy-pasted across service methods; Proxy doesn't implement same interface as subject; Proxy accumulates business logic.
 
 ---
 
@@ -351,14 +290,14 @@ Structural composition problem?
 
 | Mistake | Fix |
 |---------|-----|
-| Singleton instead of dependency injection | Pass the shared object as a constructor parameter |
-| Adapter accumulates state or business logic | Adapter should only translate — no logic |
-| Composite forces no-op `add()`/`remove()` on leaves | Use a narrower leaf interface; uniform interface is a goal, not a mandate |
-| Decorator mutates the wrapped object directly | Always delegate — the decorator owns the call, not the state |
-| Facade becomes a God Object | Split into domain-specific facades when public methods exceed ~5 |
-| Flyweight applied without a memory profile | Measure first — complexity is only justified by real memory pressure |
+| Singleton instead of DI | Pass shared object as constructor parameter |
+| Adapter accumulates state/logic | Adapter should only translate |
+| Composite forces no-op `add()`/`remove()` on leaves | Narrower leaf interface; uniformity is a goal, not mandate |
+| Decorator mutates wrapped object | Always delegate — decorator owns the call, not the state |
+| Facade becomes God Object | Split into domain-specific facades when methods exceed ~5 |
+| Flyweight without memory profile | Measure first — complexity only justified by real pressure |
 
-## Cross-References to Refactoring Skills
+## Cross-References
 
 | Pattern | Refactoring Skill |
 |---------|-------------------|
@@ -366,4 +305,3 @@ Structural composition problem?
 | Builder | Introduce Parameter Object — `refactor-simplifying-method-calls` |
 | Adapter / Composite / Facade | Extract Class, Move Method — `refactor-moving-features` |
 | Decorator | Replace Inheritance with Delegation — `refactor-generalization` |
-| Any pattern introducing a new class | Extract Method — `refactor-composing-methods` |

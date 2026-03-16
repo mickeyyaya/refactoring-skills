@@ -7,31 +7,30 @@ description: Use when reviewing code for communication and responsibility proble
 
 ## Overview
 
-Behavioral patterns address how objects communicate and distribute responsibility. They replace tangled conditional logic, tight coupling between collaborators, and ad-hoc event wiring with well-named structures the entire team can reason about. Recognizing which pattern is — or should be — present is a core code review skill.
+Behavioral patterns address how objects communicate and distribute responsibility. They replace tangled conditional logic, tight coupling, and ad-hoc event wiring with well-named structures. Recognizing which pattern is — or should be — present is a core code review skill.
 
 ## When to Use
 
-- Reviewing code with large `switch`/`if-else` blocks that branch on type or state
-- Identifying tightly coupled objects that call each other in every direction
-- Noticing duplicated algorithm logic with only small steps varying
-- Evaluating event and notification systems for correctness and scalability
-- Recommending a named pattern so the team shares vocabulary for the change
+- Large `switch`/`if-else` blocks branching on type or state
+- Tightly coupled objects calling each other in every direction
+- Duplicated algorithm logic with only small steps varying
+- Event/notification systems needing correctness and scalability review
 
 ## Quick Reference
 
 | Pattern | Core Problem Solved | Key Red Flag |
 |---------|---------------------|--------------|
-| Chain of Responsibility | Decouple sender from receiver; multiple handlers possible | Hardcoded handler cascade in caller |
-| Command | Encapsulate request as object; supports undo/queue | Method calls not storable or reversible |
-| Iterator | Uniform traversal without exposing collection internals | Callers access internal array fields directly |
-| Mediator | Replace many-to-many coupling with a central coordinator | Objects holding direct references to many unrelated peers |
-| Memento | Save and restore state without breaking encapsulation | Caller copies internal fields to implement undo |
-| Observer | Notify dependents of state changes automatically | Producer manually calls every consumer after each change |
-| State | Object changes behavior as internal state changes | Giant `switch (this.state)` repeated in multiple methods |
-| Strategy | Make algorithms interchangeable at runtime | `if (type === 'A') algoA() else if (type === 'B') algoB()` |
-| Template Method | Fix algorithm structure; let subclasses override steps | Copy-pasted algorithm with one or two lines differing |
-| Visitor | Add operations to a class hierarchy without modifying it | New `instanceof` branch added for every new operation |
-| Interpreter | Evaluate sentences in a simple grammar | Ad-hoc string parsing scattered across the codebase |
+| Chain of Responsibility | Decouple sender from receiver; multiple handlers | Hardcoded handler cascade in caller |
+| Command | Encapsulate request as object; undo/queue | Method calls not storable or reversible |
+| Iterator | Uniform traversal without exposing internals | Callers access internal array fields directly |
+| Mediator | Replace many-to-many with central coordinator | Objects holding refs to many unrelated peers |
+| Memento | Save/restore state without breaking encapsulation | Caller copies internal fields for undo |
+| Observer | Notify dependents of state changes automatically | Producer manually calls every consumer |
+| State | Object changes behavior as state changes | Giant `switch (this.state)` in multiple methods |
+| Strategy | Interchangeable algorithms at runtime | `if (type === 'A') algoA() else algoB()` |
+| Template Method | Fix algorithm structure; vary steps | Copy-pasted algorithm with 1-2 lines differing |
+| Visitor | Add operations without modifying hierarchy | New `instanceof` branch per operation |
+| Interpreter | Evaluate sentences in a simple grammar | Ad-hoc string parsing scattered across codebase |
 
 ---
 
@@ -41,9 +40,7 @@ Behavioral patterns address how objects communicate and distribute responsibilit
 
 **Intent:** Define a family of algorithms, encapsulate each one, and make them interchangeable.
 
-**When to Use:** Multiple ways to perform a task, chosen at runtime; you want to eliminate `if/else` algorithm selection; each algorithm should be unit-testable in isolation.
-
-**When NOT to Use:** Only one algorithm exists and will never change. A single boolean flag — use a parameter instead.
+**Use when** multiple algorithms chosen at runtime need independent testing. **Skip when** only one algorithm exists or a single boolean flag suffices.
 
 ```typescript
 interface PricingStrategy {
@@ -61,10 +58,7 @@ class OrderPricer {
 }
 ```
 
-**Code Review Red Flags**
-- `if (strategy === 'discount') applyDiscount() else if (strategy === 'bulk') applyBulk()` — caller owns selection
-- Adding a new algorithm requires editing existing code (Open/Closed violation)
-- Algorithm logic duplicated across callers with minor differences
+**Red Flags:** caller owns algorithm selection via `if/else`; adding an algorithm requires editing existing code (Open/Closed violation); algorithm logic duplicated across callers.
 
 **Refactoring link:** Replace Conditional with Polymorphism (`refactor-simplifying-conditionals`)
 
@@ -72,11 +66,9 @@ class OrderPricer {
 
 ### 2. Observer *(critical for event architecture)*
 
-**Intent:** When one object changes state, all its dependents are notified and updated automatically.
+**Intent:** When one object changes state, all dependents are notified automatically.
 
-**When to Use:** Event systems, pub/sub, reactive data pipelines; multiple independent components reflect the same model state.
-
-**When NOT to Use:** Notification order must be guaranteed and cascading updates are hard to trace. Small and static dependency set — direct calls are clearer.
+**Use when** event systems, pub/sub, or reactive pipelines need multiple independent components reflecting the same state. **Skip when** notification order must be guaranteed and cascading updates are hard to trace, or dependency set is small and static.
 
 ```typescript
 interface Observer { update(event: string, payload: unknown): void; }
@@ -88,10 +80,7 @@ class EventEmitter {
 }
 ```
 
-**Code Review Red Flags**
-- Producer holds direct references to consumers and calls them explicitly
-- Adding a new consumer requires modifying the producer
-- Events trigger cascading updates with unpredictable order
+**Red Flags:** producer holds direct references to consumers; adding a consumer requires modifying the producer; events trigger cascading updates with unpredictable order.
 
 ---
 
@@ -99,9 +88,7 @@ class EventEmitter {
 
 **Intent:** Allow an object to alter its behavior when its internal state changes.
 
-**When to Use:** Multiple methods share the same `switch (this.state)` block; state transitions have rules; object appears to change class at runtime.
-
-**When NOT to Use:** Only 2 states with simple logic — a boolean flag is fine. Transitions are unrestricted with no per-state behavior differences.
+**Use when** multiple methods share the same `switch (this.state)` block with enforced transitions. **Skip when** only 2 states with simple logic or transitions are unrestricted with no per-state behavior differences.
 
 ```typescript
 interface TrafficLightState { next(): TrafficLightState; signal(): string; }
@@ -116,10 +103,7 @@ class TrafficLight {
 }
 ```
 
-**Code Review Red Flags**
-- `switch (this.status)` repeated identically across 3+ methods
-- Illegal state transitions are possible because validation is missing
-- New state requires modifying every switch statement in the class
+**Red Flags:** `switch (this.status)` repeated in 3+ methods; illegal state transitions possible; new state requires modifying every switch.
 
 **Refactoring link:** Replace Type Code with State/Strategy (`refactor-simplifying-conditionals`)
 
@@ -129,9 +113,7 @@ class TrafficLight {
 
 **Intent:** Encapsulate a request as an object to support undo, queuing, logging, and parameterization.
 
-**When to Use:** Undo/redo required; operations must be queued, scheduled, or replayed; macro system or audit log needed.
-
-**When NOT to Use:** Simple one-shot calls with no history or queuing needed — wrapping adds complexity with no benefit.
+**Use when** undo/redo, queuing, scheduling, or replay is needed. **Skip when** simple one-shot calls with no history or queuing — wrapping adds complexity with no benefit.
 
 ```typescript
 interface Command { execute(): void; undo(): void; }
@@ -144,20 +126,15 @@ class InsertTextCommand implements Command {
 // History: Command[] — push on execute, pop().undo() on undo
 ```
 
-**Code Review Red Flags**
-- Undo implemented by caller re-running operations in reverse — brittle
-- History array stores raw strings instead of executable command objects
-- Operations cannot be composed, delayed, or retried
+**Red Flags:** undo by re-running operations in reverse; history stores raw strings instead of command objects; operations cannot be composed, delayed, or retried.
 
 ---
 
 ### 5. Template Method
 
-**Intent:** Define the skeleton of an algorithm in a base class; subclasses override specific steps without changing the sequence.
+**Intent:** Define algorithm skeleton in base class; subclasses override specific steps.
 
-**When to Use:** Several classes implement the same multi-step algorithm with only 1-2 steps varying; framework hooks for callers to extend.
-
-**When NOT to Use:** The algorithm skeleton itself varies — use Strategy. Subclassing is too rigid — prefer composition.
+**Use when** several classes implement the same multi-step algorithm with 1-2 steps varying. **Skip when** the skeleton itself varies (use Strategy) or subclassing is too rigid (prefer composition).
 
 ```typescript
 abstract class DataExporter {
@@ -173,10 +150,7 @@ class CsvExporter extends DataExporter {
 }
 ```
 
-**Code Review Red Flags**
-- Same multi-step algorithm copy-pasted across sibling classes with 2 lines differing
-- Subclass overrides the entire method instead of just the varying step
-- Extension points (abstract/hook methods) are not documented
+**Red Flags:** same multi-step algorithm copy-pasted with 2 lines differing; subclass overrides entire method instead of the varying step; extension points undocumented.
 
 **Refactoring link:** Pull Up Method, Extract Superclass (`refactor-generalization`)
 
@@ -184,11 +158,9 @@ class CsvExporter extends DataExporter {
 
 ### 6. Chain of Responsibility
 
-**Intent:** Pass a request along a chain of handlers; each handler decides to process it or pass it on.
+**Intent:** Pass a request along a chain of handlers; each decides to process or pass on.
 
-**When to Use:** Multiple objects may handle a request; handler is determined at runtime; middleware pipelines, validation chains, approval workflows.
-
-**When NOT to Use:** Exactly one handler always processes the request — use a direct call. An unhandled request must never silently slip through.
+**Use when** multiple objects may handle a request determined at runtime (middleware, validation chains, approval workflows). **Skip when** exactly one handler always processes the request or unhandled requests must never silently slip through.
 
 ```typescript
 abstract class ApprovalHandler {
@@ -204,20 +176,15 @@ class ManagerApproval extends ApprovalHandler {
 }
 ```
 
-**Code Review Red Flags**
-- Hardcoded handler cascade in the caller (`if (a.canHandle()) a.handle() else if (b.canHandle())...`)
-- Handlers are order-dependent but the order is not enforced
-- No fallback handler — unmatched requests are silently ignored
+**Red Flags:** hardcoded handler cascade in caller; order-dependent handlers without enforced order; no fallback — unmatched requests silently ignored.
 
 ---
 
 ### 7. Iterator
 
-**Intent:** Provide sequential access to elements of a collection without exposing its internal structure.
+**Intent:** Provide sequential access to elements without exposing collection internals.
 
-**When to Use:** Custom or complex collections (tree, graph, paginated results); multiple traversal strategies for the same collection.
-
-**When NOT to Use:** Plain array/list — native iterators already exist. Random access is required — iterators are sequential.
+**Use when** custom collections (tree, graph, paginated results) need multiple traversal strategies. **Skip when** plain array/list with native iterators, or random access is required.
 
 ```typescript
 class TreeNode<T> {
@@ -229,20 +196,15 @@ function* depthFirst<T>(node: TreeNode<T>): Generator<T> {
 }
 ```
 
-**Code Review Red Flags**
-- Caller accesses `collection.items[i]` directly — breaks encapsulation
-- Multiple callers each implement their own traversal logic for the same collection
-- Collection exposes internal array fields solely for traversal
+**Red Flags:** caller accesses `collection.items[i]` directly; multiple callers implement their own traversal; collection exposes internal arrays solely for traversal.
 
 ---
 
 ### 8. Mediator
 
-**Intent:** Define a central coordinator that encapsulates how a set of objects interact, preventing them from referring to each other explicitly.
+**Intent:** Central coordinator encapsulating how objects interact, preventing direct references.
 
-**When to Use:** Many-to-many coupling between objects; components are hard to reuse because they reference too many peers; chat rooms, interconnected UI forms.
-
-**When NOT to Use:** Few objects with simple directional interactions — mediator becomes over-engineered. The mediator itself grows into a god object.
+**Use when** many-to-many coupling makes components hard to reuse (chat rooms, interconnected UI forms). **Skip when** few objects with simple interactions, or the mediator risks becoming a god object.
 
 ```typescript
 interface Mediator { send(msg: string, sender: Colleague): void; }
@@ -258,20 +220,15 @@ class Colleague {
 }
 ```
 
-**Code Review Red Flags**
-- Component holds direct references to many unrelated peers
-- Adding a new component requires modifying every other component
-- Mediator owns business logic instead of just coordinating communication
+**Red Flags:** component holds direct references to many unrelated peers; adding a component requires modifying others; mediator owns business logic instead of just coordinating.
 
 ---
 
 ### 9. Memento
 
-**Intent:** Capture and externalize an object's internal state without violating encapsulation, so it can be restored later.
+**Intent:** Capture and externalize an object's internal state for later restoration without violating encapsulation.
 
-**When to Use:** Undo/redo where the originator's internals must stay private; snapshots, checkpoints, transactional rollback.
-
-**When NOT to Use:** State is large and snapshots would be memory-intensive. Object state is already public — Memento's encapsulation benefit is moot.
+**Use when** undo/redo with private internals, snapshots, or transactional rollback. **Skip when** state is large (memory-intensive snapshots) or already public (encapsulation benefit is moot).
 
 ```typescript
 class EditorMemento { constructor(private readonly state: string) {} getState() { return this.state; } }
@@ -284,20 +241,15 @@ class DocumentEditor {
 }
 ```
 
-**Code Review Red Flags**
-- Caller directly copies fields from the object to implement undo — breaks encapsulation
-- Memento objects expose setters — saved state can be tampered with
-- History list contains live object references (not snapshots), so past states mutate
+**Red Flags:** caller directly copies fields for undo; memento exposes setters; history contains live references instead of snapshots.
 
 ---
 
 ### 10. Visitor
 
-**Intent:** Represent an operation to be performed on elements of an object structure without modifying those classes.
+**Intent:** Represent an operation on elements of a structure without modifying those classes.
 
-**When to Use:** Many unrelated operations on a stable class hierarchy; adding operations without polluting element classes; AST traversal, compilers, document renderers.
-
-**When NOT to Use:** The element hierarchy changes frequently — every new element type requires updating all visitors. Operations are few and tightly related to the elements.
+**Use when** many unrelated operations on a stable hierarchy (AST traversal, compilers, renderers). **Skip when** element hierarchy changes frequently (every new type requires updating all visitors).
 
 ```typescript
 interface ShapeVisitor { visitCircle(s: Circle): number; visitRect(s: Rect): number; }
@@ -310,20 +262,15 @@ class AreaCalc implements ShapeVisitor {
 }
 ```
 
-**Code Review Red Flags**
-- New `instanceof` branch added for every new operation on the class hierarchy
-- Operation logic for multiple element types scattered across the codebase
-- Element classes accumulate unrelated methods for different cross-cutting operations
+**Red Flags:** new `instanceof` branch per operation; operation logic scattered across codebase; element classes accumulate unrelated methods.
 
 ---
 
-### 11. Interpreter *(rarely applied in practice)*
+### 11. Interpreter *(rarely applied)*
 
-**Intent:** Define a grammar and an interpreter to evaluate sentences in that language.
+**Intent:** Define a grammar and interpreter for sentences in that language.
 
-**When to Use:** Simple, stable DSL or expression evaluator; grammar is small enough to represent as a class hierarchy.
-
-**When NOT to Use:** Complex grammar — use a proper parser generator (ANTLR, PEG.js). Performance is critical — tree-walking interpreters are slow.
+**Use when** simple, stable DSL or expression evaluator with small grammar. **Skip when** complex grammar (use ANTLR, PEG.js) or performance is critical.
 
 ```typescript
 interface Expr { eval(ctx: Map<string, number>): number; }
@@ -334,25 +281,22 @@ class Add  implements Expr {
 }
 ```
 
-**Code Review Red Flags**
-- Ad-hoc string parsing for a recurring mini-language scattered across the codebase
-- Grammar rules duplicated in multiple parse functions
-- Nested conditionals parsing tokens by hand where a grammar class hierarchy would be clearer
+**Red Flags:** ad-hoc string parsing for a recurring mini-language; grammar rules duplicated in multiple parse functions; nested conditionals parsing tokens where a grammar hierarchy would be clearer.
 
 ---
 
 ## Decision Flowchart
 
 ```
-Is the problem about COMMUNICATION or COORDINATION?
+COMMUNICATION or COORDINATION?
 ├── Multiple objects need notification of state changes?    → Observer
 ├── Save and restore internal state?                       → Memento
 ├── Object behavior changes based on internal state?       → State
 ├── Request passes through multiple potential handlers?    → Chain of Responsibility
 ├── Many-to-many coupling between objects?                 → Mediator
-└── New operations needed on a stable class hierarchy?     → Visitor
+└── New operations on a stable class hierarchy?            → Visitor
 
-Is the problem about ALGORITHMS or CONTROL FLOW?
+ALGORITHMS or CONTROL FLOW?
 ├── Multiple interchangeable algorithms at runtime?        → Strategy
 ├── Algorithm skeleton fixed, but steps vary?              → Template Method
 ├── Actions must be stored, queued, or undone?             → Command
@@ -366,10 +310,10 @@ Is the problem about ALGORITHMS or CONTROL FLOW?
 
 | Mistake | Fix |
 |---------|-----|
-| Using Strategy when a simple parameter suffices | Reserve Strategy for independently unit-testable, swappable algorithms |
-| Observer cascade — A triggers B triggers C | Keep chains shallow; document update order; use async queues for deep chains |
-| State machine without enforced transitions | Encode valid transitions inside each State class, not in the caller |
-| Command objects duplicating business logic | Command captures *what* to do; delegate *how* to the domain model |
-| Template Method when the skeleton itself varies | If the sequence changes, use Strategy + composition instead of inheritance |
-| Mediator owning business logic | Mediator coordinates communication only — business rules stay in the domain |
-| Visitor on a frequently-changing element hierarchy | New element types force all visitors to change — keep operations on the class instead |
+| Strategy when a simple parameter suffices | Reserve for independently testable, swappable algorithms |
+| Observer cascade — A triggers B triggers C | Keep chains shallow; use async queues for deep chains |
+| State machine without enforced transitions | Encode valid transitions inside each State class |
+| Command objects duplicating business logic | Command captures *what*; delegate *how* to domain model |
+| Template Method when skeleton varies | Use Strategy + composition instead of inheritance |
+| Mediator owning business logic | Mediator coordinates only — business rules stay in domain |
+| Visitor on frequently-changing hierarchy | New elements force all visitors to change — keep ops on the class |

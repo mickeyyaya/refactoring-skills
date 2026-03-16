@@ -15,42 +15,37 @@ These 12 techniques manage inheritance hierarchies — pulling shared behavior u
 - Subclass only uses a fraction of parent's interface (Refused Bequest)
 - Adding a subclass in one hierarchy requires adding one in another (Parallel Inheritance)
 - Abstract class has only one concrete subclass (Speculative Generality)
-- Inheritance is used for code reuse rather than true is-a relationships
-- Multiple classes share a common interface but no shared implementation
+- Inheritance used for code reuse rather than true is-a relationships
 
 ## Quick Reference
 
 | Technique | Problem | Solution |
 |-----------|---------|----------|
-| Pull Up Field | Duplicate field in sibling classes | Move field to superclass |
-| Pull Up Method | Duplicate or similar method in sibling classes | Move method to superclass |
-| Pull Up Constructor Body | Duplicate constructor code in subclasses | Move shared initialization to super constructor |
-| Push Down Method | Method only relevant to one subclass | Move from parent to that subclass |
-| Push Down Field | Field only used by one subclass | Move from parent to that subclass |
-| Extract Subclass | Class has features used only in some instances | Create subclass for the special case |
-| Extract Superclass | Two classes with similar features | Create parent class with shared features |
-| Extract Interface | Multiple classes share a partial interface | Create interface for the shared protocol |
+| Pull Up Field | Duplicate field in siblings | Move to superclass |
+| Pull Up Method | Duplicate method in siblings | Move to superclass |
+| Pull Up Constructor Body | Duplicate constructor code | Move shared init to super constructor |
+| Push Down Method | Method only relevant to one subclass | Move from parent to subclass |
+| Push Down Field | Field only used by one subclass | Move from parent to subclass |
+| Extract Subclass | Features used only in some instances | Create subclass for special case |
+| Extract Superclass | Two classes with similar features | Create parent with shared features |
+| Extract Interface | Classes share partial interface | Create interface for shared protocol |
 | Collapse Hierarchy | Subclass too similar to parent | Merge subclass into parent |
-| Form Template Method | Sibling methods do same steps differently | Template method in parent, differing steps in subclasses |
-| Replace Inheritance with Delegation | Subclass only uses part of parent, or is-a doesn't hold | Hold parent as a field, delegate specific methods |
-| Replace Delegation with Inheritance | Class delegates most calls to another, and is truly a subtype | Use inheritance instead of delegation |
+| Form Template Method | Same steps, different details | Template in parent, steps in subclasses |
+| Replace Inheritance with Delegation | is-a doesn't hold | Hold parent as field, delegate |
+| Replace Delegation with Inheritance | Delegates most calls, truly a subtype | Use inheritance instead |
 
 ## Techniques in Detail
 
 ### 1. Pull Up Field / Pull Up Method
 
-The most common generalization — eliminate duplication across sibling classes.
-
 **Before:**
 ```typescript
 class Salesman {
   readonly name: string;
-  // ...
 }
 
 class Engineer {
   readonly name: string;
-  // ...
 }
 ```
 
@@ -65,10 +60,10 @@ class Engineer extends Employee { /* ... */ }
 ```
 
 **Pull Up Method steps:**
-1. Inspect methods in sibling classes for similarity
-2. If method bodies are identical, move to parent
+1. Inspect sibling methods for similarity
+2. If identical, move to parent
 3. If signatures differ, rename to match first
-4. If bodies differ slightly, use Extract Method to isolate differences, then Form Template Method
+4. If bodies differ slightly, Extract Method to isolate differences, then Form Template Method
 5. Run tests
 
 ### 2. Pull Up Constructor Body
@@ -116,8 +111,6 @@ class Engineer extends Employee {
 
 ### 3. Push Down Method / Push Down Field
 
-The reverse of Pull Up — move things that only one subclass uses.
-
 **Before:**
 ```typescript
 class Employee {
@@ -132,7 +125,7 @@ class Salesman extends Employee {
 }
 ```
 
-**When to push down:** When the feature doesn't apply to all subtypes and is causing Refused Bequest in other subclasses.
+Push down when the feature doesn't apply to all subtypes and causes Refused Bequest in other subclasses.
 
 ### 4. Extract Subclass
 
@@ -142,7 +135,6 @@ class JobItem {
   getTotalPrice(): number {
     return this.unitPrice * this.quantity;
   }
-
   getUnitPrice(): number {
     return this.isLabor ? this.employee.rate : this.unitPrice;
   }
@@ -155,7 +147,6 @@ class JobItem {
   getTotalPrice(): number {
     return this.getUnitPrice() * this.quantity;
   }
-
   getUnitPrice(): number {
     return this.unitPrice;
   }
@@ -169,8 +160,6 @@ class LaborItem extends JobItem {
 ```
 
 ### 5. Extract Superclass
-
-When two existing classes share significant common features.
 
 **Before:**
 ```typescript
@@ -228,24 +217,13 @@ class Contractor implements Billable {
 }
 ```
 
-**When to use Interface vs Superclass:**
-- **Interface**: Classes share a contract but not implementation
-- **Superclass**: Classes share both contract AND implementation
+**Interface vs Superclass:** Interface when classes share a contract but not implementation. Superclass when they share both.
 
 ### 7. Collapse Hierarchy
 
-When a subclass isn't different enough from its parent.
-
-**Steps:**
-1. Choose which class to remove (usually the subclass)
-2. Pull Up or Push Down all fields and methods
-3. Update all references to use the remaining class
-4. Delete the empty class
-5. Run tests
+When a subclass isn't different enough from its parent: choose which to remove (usually subclass), Pull Up or Push Down all members, update references, delete the empty class, run tests.
 
 ### 8. Form Template Method
-
-When sibling methods follow the same algorithm but differ in specific steps.
 
 **Before:**
 ```typescript
@@ -273,13 +251,12 @@ class HtmlStatement {
 abstract class Statement {
   value(customer: Customer): string {
     let result = this.header(customer);
-    result += this.body(customer);  // template method calls abstract step
+    result += this.body(customer);
     result += this.footer(customer);
     return result;
   }
 
   protected abstract body(customer: Customer): string;
-
   protected header(customer: Customer): string { /* shared */ }
   protected footer(customer: Customer): string { /* shared */ }
 }
@@ -295,7 +272,7 @@ class HtmlStatement extends Statement {
 
 ### 9. Replace Inheritance with Delegation
 
-The most important technique here. Use when inheritance is being abused for code reuse rather than expressing a true "is-a" relationship.
+The most important technique here. Use when inheritance is abused for code reuse rather than a true "is-a" relationship.
 
 **Before:**
 ```typescript
@@ -327,20 +304,11 @@ class Stack<T> {
 }
 ```
 
-**Signals to use delegation:**
-- Subclass only uses a few methods from parent
-- Subclass overrides many parent methods to throw or no-op
-- The "is-a" test fails: "Is a Stack an Array?" — not really
-- You want to expose a restricted interface
+**Signals to use delegation:** subclass uses few parent methods, overrides many to throw/no-op, "is-a" test fails, or you want a restricted interface.
 
 ### 10. Replace Delegation with Inheritance
 
-The reverse — when delegation is excessive and the object truly IS the delegate type.
-
-**When to apply:**
-- You're delegating almost every method
-- The object really is a specialized version of the delegate
-- There's no need to restrict the interface
+The reverse — when delegation is excessive and the object truly IS the delegate type. Apply when you're delegating almost every method, the object is a specialized version of the delegate, and there's no need to restrict the interface.
 
 ## Decision Flowchart
 
@@ -382,7 +350,7 @@ digraph generalization {
 |---------|-----|
 | Pulling up methods that aren't truly shared | Only pull up when ALL subclasses need it — otherwise push down |
 | Using inheritance for code reuse when "is-a" doesn't hold | Default to delegation; use inheritance only for true subtypes |
-| Creating deep hierarchies (>3 levels) | Flatten with delegation or composition; prefer shallow hierarchies |
-| Extracting superclass too early (only one known subclass) | Wait for the second case before generalizing (rule of three) |
+| Creating deep hierarchies (>3 levels) | Flatten with delegation or composition |
+| Extracting superclass too early (one known subclass) | Wait for the second case (rule of three) |
 | Form Template Method with too many abstract steps | If more than 3-4 steps differ, the algorithm isn't truly shared |
-| Collapsing hierarchy when subclass has meaningful behavioral differences | Subclass should only be collapsed if it adds no unique behavior |
+| Collapsing hierarchy when subclass has meaningful behavioral differences | Only collapse if subclass adds no unique behavior |
