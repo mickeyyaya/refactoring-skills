@@ -65,31 +65,38 @@ Deeper skill: `review-code-quality-process`
 - Are return values checked where the caller could fail silently?
 
 ### Security
-Deeper skill: `security-patterns-code-review`
+Deeper skills: `security-patterns-code-review`, `auth-authz-patterns`, `data-validation-schema-patterns`
 
-- All user input validated and sanitized before use?
+- All user input validated and sanitized before use (schema-validated at boundary)?
 - Parameterized queries used everywhere — no string concatenation into SQL?
 - Authentication checked before any privileged operation?
+- Authorization enforced at the resource level, not just the route level?
+- JWT / session tokens validated (signature, expiry, audience)?
 - Sensitive data (PII, tokens) not logged or exposed in responses?
 - Rate limiting in place on new endpoints?
 
 ### Performance
-Deeper skill: `performance-anti-patterns`
+Deeper skills: `performance-anti-patterns`, `caching-strategies`
 
 - No query inside a loop (N+1)?
 - Unbounded queries have LIMIT or pagination?
 - No repeated expensive computation where caching would serve?
+- Cache invalidation strategy defined (TTL, event-based, or manual purge)?
+- Cache key space does not risk collision across tenants or users?
 - No synchronous blocking call on a hot path?
 - Large collections processed lazily or streamed where possible?
 
 ### Data and Database
-Deeper skill: `database-review-patterns`
+Deeper skills: `database-review-patterns`, `migration-patterns`, `event-sourcing-cqrs-patterns`
 
 - Migrations are reversible (down migration provided)?
 - New columns have sensible defaults or are nullable?
 - Indexes added for new filter/join columns?
 - Transactions wrap multi-step writes that must be atomic?
 - No raw DELETE or UPDATE without a WHERE clause?
+- For event sourcing: events are immutable and append-only; projections are rebuildable?
+- For CQRS: read model updates are eventually consistent and that is acceptable to the feature?
+- Large data migrations use a batched/online strategy, not a single blocking ALTER?
 
 ### Error Handling
 Deeper skill: `error-handling-patterns`
@@ -110,22 +117,26 @@ Deeper skill: `testing-patterns`
 - Coverage of edge cases, not just the happy path?
 
 ### API Contract
-Deeper skill: `review-api-contract`
+Deeper skills: `review-api-contract`, `graphql-grpc-api-patterns`, `api-rate-limiting-throttling`
 
 - Request and response schemas are versioned or backward-compatible?
 - New required fields have defaults so existing clients do not break?
 - Removed fields deprecated first (not deleted in one step)?
 - HTTP status codes are semantically correct?
 - Error response shape is consistent with existing endpoints?
+- For GraphQL: resolver complexity limits, N+1 via DataLoader, schema deprecation tags used correctly?
+- For gRPC: proto backward compatibility maintained; field numbers not reused?
+- Rate limiting and throttling applied on public-facing or high-traffic endpoints?
 
 ### Architecture and Design
-Deeper skill: `architectural-patterns`
+Deeper skills: `architectural-patterns`, `domain-driven-design-patterns`, `microservices-resilience-patterns`
 
 - Change fits the existing layer boundaries (no controller reaching into DB directly)?
 - No new circular dependencies introduced?
 - Abstractions introduced only when there are 2+ concrete cases?
-- Does the change respect bounded context boundaries?
+- Does the change respect bounded context boundaries (DDD aggregates, bounded contexts)?
 - Would this approach still work at 10x the current load?
+- For microservices: circuit breakers, bulkheads, and timeouts in place on inter-service calls?
 
 ### Code Smells
 Deeper skill: `detect-code-smells`
@@ -162,11 +173,12 @@ Deeper skill: `concurrency-patterns`
 - Race conditions tested with concurrent test tooling where available?
 
 ### Observability
-Deeper skill: `observability-patterns`
+Deeper skills: `observability-patterns`, `distributed-tracing-patterns`
 
 - New code paths emit structured logs at appropriate levels?
 - Key operations have metrics (counters, histograms) for monitoring?
-- Distributed traces propagated through new service calls?
+- Distributed traces propagated through new service calls (trace context headers forwarded)?
+- Span tags and baggage set correctly; no sensitive data in trace attributes?
 - Alerts or runbooks updated if new failure modes are introduced?
 
 ### Dependencies and Module Boundaries
@@ -183,6 +195,73 @@ Deeper skill: `language-specific-idioms`
 - Code follows the conventions of the language (error returns in Go, Result types in Rust, async/await in JS)?
 - No anti-patterns specific to the language (mutable default args in Python, `==` on objects in Java)?
 - Standard library used where available instead of hand-rolling utilities?
+
+### Messaging and Async Workflows
+Deeper skills: `message-queue-patterns`, `data-pipeline-patterns`
+
+- Message producers set appropriate delivery guarantees (at-least-once, exactly-once)?
+- Consumers are idempotent — safe to process the same message more than once?
+- Dead-letter queues configured for unprocessable messages?
+- Backpressure or flow control in place for high-volume pipelines?
+- Data pipeline stages handle partial failures without corrupting downstream state?
+- Schema of messages/events is versioned and backward-compatible?
+
+### Infrastructure and Deployment
+Deeper skills: `container-kubernetes-patterns`, `cicd-pipeline-patterns`, `feature-flags-progressive-delivery`
+
+- Container images use a specific digest or pinned tag, not `latest`?
+- Resource requests and limits set on all Kubernetes workloads?
+- Liveness and readiness probes configured correctly?
+- Secrets mounted via secret store, not baked into image or environment variables in plain text?
+- CI pipeline runs tests and security scans before deploying?
+- Risky changes wrapped in a feature flag so they can be disabled without a rollback?
+- Feature flag cleaned up (removal task filed) after full rollout?
+
+### State Management
+Deeper skill: `state-management-patterns`
+
+- Client-side state is normalized — no deeply nested duplicated objects?
+- State mutations go through a defined action/reducer path, not direct mutation?
+- Derived data computed via selectors, not duplicated in state?
+- Side effects (async calls) isolated from pure state update logic?
+
+### Real-Time and Streaming
+Deeper skill: `real-time-communication-patterns`
+
+- WebSocket / SSE connections have reconnection logic and exponential backoff?
+- Server-side broadcast scoped correctly — messages not leaked to wrong users?
+- Message ordering guarantees understood and documented?
+- Fallback to polling defined if real-time channel is unavailable?
+
+### Multi-Tenancy
+Deeper skill: `multi-tenancy-patterns`
+
+- Every DB query and cache read scoped to the current tenant (no cross-tenant data leak)?
+- Tenant-specific configuration loaded correctly without global cache pollution?
+- Resource quotas enforced per tenant?
+
+### Search and Indexing
+Deeper skill: `search-indexing-patterns`
+
+- Index mappings updated when new fields need to be searchable?
+- Index reindex strategy defined for mapping changes (backward-compatible mapping, alias swap)?
+- Query complexity bounded — no unbounded wildcard or leading-wildcard queries in production?
+
+### Internationalization and Localization
+Deeper skill: `i18n-l10n-patterns`
+
+- All user-visible strings externalized to translation files — no hardcoded display text?
+- Date, time, number, and currency formatting uses locale-aware formatters?
+- Right-to-left layout tested if supporting RTL locales?
+- New translation keys added to all supported locale files (or at minimum the fallback locale)?
+
+### Documentation
+Deeper skill: `code-documentation-patterns`
+
+- Public API, exported functions, and complex algorithms have doc comments?
+- README or runbook updated if the operational model changed?
+- Architecture decision records (ADRs) updated for significant design choices?
+- Inline comments explain WHY, not WHAT (code explains what; comments explain why)?
 
 ---
 
@@ -201,6 +280,8 @@ Deeper skill: `language-specific-idioms`
 ---
 
 ## Cross-References (Full Skill Library)
+
+### Core Review Skills
 
 | Dimension | Skill |
 |-----------|-------|
@@ -222,3 +303,49 @@ Deeper skill: `language-specific-idioms`
 | Language-specific idioms | `language-specific-idioms` |
 | Smell-to-refactoring decision aid | `refactoring-decision-matrix` |
 | Anti-patterns catalog | `anti-patterns-catalog` |
+| Pattern detection walkthroughs | `pattern-detection-walkthroughs` |
+| Type system patterns | `type-system-patterns` |
+
+### Architecture and Domain Skills (Cycles 7–10)
+
+| Dimension | Skill |
+|-----------|-------|
+| Domain-driven design patterns | `domain-driven-design-patterns` |
+| Microservices resilience patterns | `microservices-resilience-patterns` |
+| Code documentation patterns | `code-documentation-patterns` |
+| GraphQL and gRPC API patterns | `graphql-grpc-api-patterns` |
+| Event sourcing and CQRS patterns | `event-sourcing-cqrs-patterns` |
+| Feature flags and progressive delivery | `feature-flags-progressive-delivery` |
+| Data pipeline patterns | `data-pipeline-patterns` |
+| Distributed tracing patterns | `distributed-tracing-patterns` |
+| CI/CD pipeline patterns | `cicd-pipeline-patterns` |
+
+### Infrastructure and Data Skills (Cycles 11–13)
+
+| Dimension | Skill |
+|-----------|-------|
+| Caching strategies | `caching-strategies` |
+| Message queue patterns | `message-queue-patterns` |
+| State management patterns | `state-management-patterns` |
+| API rate limiting and throttling | `api-rate-limiting-throttling` |
+| Authentication and authorization patterns | `auth-authz-patterns` |
+| Data validation and schema patterns | `data-validation-schema-patterns` |
+| Migration patterns | `migration-patterns` |
+| Container and Kubernetes patterns | `container-kubernetes-patterns` |
+| Real-time communication patterns | `real-time-communication-patterns` |
+| Multi-tenancy patterns | `multi-tenancy-patterns` |
+| Search and indexing patterns | `search-indexing-patterns` |
+| Internationalization and localization patterns | `i18n-l10n-patterns` |
+
+### Refactoring Skills
+
+| Dimension | Skill |
+|-----------|-------|
+| Refactoring overview | `refactor` |
+| Composing methods | `refactor-composing-methods` |
+| Moving features between objects | `refactor-moving-features` |
+| Organizing data | `refactor-organizing-data` |
+| Simplifying conditionals | `refactor-simplifying-conditionals` |
+| Simplifying method calls | `refactor-simplifying-method-calls` |
+| Generalization techniques | `refactor-generalization` |
+| Functional refactoring patterns | `refactor-functional-patterns` |

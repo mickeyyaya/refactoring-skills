@@ -1,12 +1,13 @@
 # Refactoring & Design Pattern Skills for Claude Code
 
-A comprehensive library of **28 skills** for [Claude Code](https://claude.ai/claude-code) covering refactoring, design patterns, code review, and software engineering best practices across **6 programming languages**. Built from [refactoring.guru](https://refactoring.guru/), Gang of Four patterns, OWASP, and industry best practices.
+A comprehensive library of **50 skills** for [Claude Code](https://claude.ai/claude-code) covering refactoring, design patterns, code review, software engineering best practices, microservices, distributed systems, DevOps, security, and more across **6 programming languages**. Built from [refactoring.guru](https://refactoring.guru/), Gang of Four patterns, OWASP, and industry best practices.
 
-## Skills Library (28 skills, ~9,700 lines)
+## Skills Library (50 skills, ~22,000 lines)
 
-### Refactoring Techniques (7 skills)
+### Refactoring Techniques (8 skills)
 | Skill | Coverage |
 |-------|----------|
+| `refactor` | Orchestration skill — full refactoring pipeline from detection through fix |
 | `detect-code-smells` | 23 code smells across 5 categories |
 | `refactor-composing-methods` | 9 techniques: Extract Method, Inline Method, etc. |
 | `refactor-moving-features` | 8 techniques: Move Method, Extract Class, etc. |
@@ -55,6 +56,67 @@ A comprehensive library of **28 skills** for [Claude Code](https://claude.ai/cla
 | `language-specific-idioms` | Idioms for TypeScript, Python, Java, Go, Rust, C++ |
 | `type-system-patterns` | 10 type patterns: Branded Types, Phantom Types, etc. |
 | `refactor-functional-patterns` | 8 FP patterns: Pure Functions, Composition, Monads, etc. |
+
+### Domain & Architecture (3 skills)
+| Skill | Coverage |
+|-------|----------|
+| `domain-driven-design-patterns` | Bounded Contexts, Aggregates, Value Objects, Domain Events, Context Mapping |
+| `event-sourcing-cqrs-patterns` | Event Sourcing, CQRS, projections, snapshots, event schema evolution |
+| `migration-patterns` | Strangler Fig, Anti-Corruption Layer, Branch by Abstraction, Expand-Contract, CDC |
+
+### Microservices & Distributed Systems (3 skills)
+| Skill | Coverage |
+|-------|----------|
+| `microservices-resilience-patterns` | Saga, Bulkhead, Circuit Breaker, Retry, API Gateway, Service Mesh |
+| `message-queue-patterns` | Pub/Sub, Competing Consumers, Outbox, DLQ, Kafka partitions, exactly-once |
+| `real-time-communication-patterns` | WebSocket, SSE, long polling, Redis Pub/Sub scaling, auth at upgrade |
+
+### DevOps & Infrastructure (3 skills)
+| Skill | Coverage |
+|-------|----------|
+| `cicd-pipeline-patterns` | Pipeline stages, GitOps, deployment strategies, SLSA, shift-left testing |
+| `container-kubernetes-patterns` | Health probes, HPA/KEDA, PDB, RBAC, graceful shutdown, anti-patterns |
+| `feature-flags-progressive-delivery` | Feature toggles, canary/blue-green/ring deployments, A/B testing, kill switches |
+
+### Data & Search (4 skills)
+| Skill | Coverage |
+|-------|----------|
+| `data-pipeline-patterns` | ETL/ELT, batch vs streaming, idempotency, watermarking, schema evolution, DAG design |
+| `search-indexing-patterns` | Elasticsearch/OpenSearch mapping, ILM, query/aggregation patterns, PostgreSQL FTS |
+| `caching-strategies` | Cache-aside/read-through/write-through, stampede prevention, CDN, eviction policies |
+| `data-validation-schema-patterns` | Zod, Pydantic v2, Bean Validation, schema evolution, coercion vs strict parsing |
+
+### API & Communication (2 skills)
+| Skill | Coverage |
+|-------|----------|
+| `graphql-grpc-api-patterns` | Schema design, N+1/DataLoader, Protobuf field numbering, gRPC streaming, breaking changes |
+| `api-rate-limiting-throttling` | Token Bucket, Leaky Bucket, Sliding Window, Redis Lua scripts, client-side backoff |
+
+### Security & Auth (3 skills)
+| Skill | Coverage |
+|-------|----------|
+| `auth-authz-patterns` | OAuth2, OIDC, JWT, RBAC/ABAC, mTLS, service-to-service auth, session security |
+| `multi-tenancy-patterns` | RLS, schema-per-tenant, DB-per-tenant, tenant context propagation, tenant-aware caching |
+| `state-management-patterns` | Flux/Redux, React Query/SWR, optimistic updates, XState FSM, session management |
+
+### Frontend & Client (2 skills)
+| Skill | Coverage |
+|-------|----------|
+| `state-management-patterns` | Flux/Redux, React Query/SWR, optimistic updates, XState FSM, session management |
+| `i18n-l10n-patterns` | ICU MessageFormat, CLDR plurals, Intl API, RTL layout, pseudo-localization testing |
+
+### Documentation & Observability (3 skills)
+| Skill | Coverage |
+|-------|----------|
+| `code-documentation-patterns` | ADRs, OpenAPI/AsyncAPI, README standards, runbooks, technical debt registers |
+| `distributed-tracing-patterns` | OpenTelemetry, span design, context propagation, sampling strategies, trace-based testing |
+| `observability-patterns` | Logging, Tracing, Metrics, Health Checks, Alerting |
+
+### Validation & Type Safety (2 skills)
+| Skill | Coverage |
+|-------|----------|
+| `data-validation-schema-patterns` | Zod, Pydantic v2, Bean Validation, schema evolution, coercion vs strict parsing |
+| `type-system-patterns` | 10 type patterns: Branded Types, Phantom Types, etc. |
 
 ## Installation
 
@@ -108,9 +170,18 @@ Skills activate automatically based on context. Start any code review with `/rev
 - **Code review** → `review-cheat-sheet` (master), `review-code-quality-process` (detailed)
 - **Code smells** → `detect-code-smells` → `refactoring-decision-matrix` → specific refactoring skill
 - **Design decisions** → `design-patterns-*`, `architectural-patterns`
-- **Security review** → `security-patterns-code-review`
-- **Performance issues** → `performance-anti-patterns`, `database-review-patterns`
+- **Security review** → `security-patterns-code-review`, `auth-authz-patterns`
+- **Performance issues** → `performance-anti-patterns`, `database-review-patterns`, `caching-strategies`
 - **Language-specific** → `language-specific-idioms`, `type-system-patterns`
+- **Distributed systems** → `microservices-resilience-patterns`, `message-queue-patterns`, `event-sourcing-cqrs-patterns`
+- **Infrastructure** → `cicd-pipeline-patterns`, `container-kubernetes-patterns`, `feature-flags-progressive-delivery`
+- **Data & search** → `data-pipeline-patterns`, `search-indexing-patterns`, `caching-strategies`
+- **APIs** → `graphql-grpc-api-patterns`, `api-rate-limiting-throttling`, `review-api-contract`
+- **Domain modeling** → `domain-driven-design-patterns`, `migration-patterns`
+- **Frontend** → `state-management-patterns`, `i18n-l10n-patterns`
+- **Observability** → `observability-patterns`, `distributed-tracing-patterns`
+- **Documentation** → `code-documentation-patterns`
+- **Multi-tenant systems** → `multi-tenancy-patterns`
 
 ## Coverage Summary
 
@@ -130,6 +201,12 @@ Skills activate automatically based on context. Start any code review with `/rev
 | DI/Module Patterns | 8 |
 | Type System Patterns | 10 |
 | FP Patterns | 8 |
+| DDD Patterns | Bounded Contexts, Aggregates, Value Objects, Domain Events |
+| Microservices Patterns | Saga, Circuit Breaker, Bulkhead, API Gateway, Service Mesh |
+| Messaging Patterns | Pub/Sub, Outbox, DLQ, Kafka, exactly-once delivery |
+| CI/CD Patterns | Pipeline stages, GitOps, blue-green, canary, SLSA |
+| Caching Patterns | Cache-aside, read/write-through, stampede prevention, CDN |
+| Auth/Authz Patterns | OAuth2, OIDC, JWT, RBAC, ABAC, mTLS |
 | Languages Covered | 6 (TypeScript, Python, Java, Go, Rust, C++) |
 
 ## License
