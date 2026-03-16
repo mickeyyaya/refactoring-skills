@@ -1,6 +1,6 @@
 ---
 name: skill-catalog
-description: Master navigation and dispatch index for all 49 skills — invoke this skill first when unsure which skill covers your task. Maps common scenarios, tasks, and questions to the right skill via a quick dispatch table, domain category index, and decision FAQ.
+description: Master navigation and dispatch index for all 54 skills — invoke this skill first when unsure which skill covers your task. Maps common scenarios, tasks, and questions to the right skill via a quick dispatch table, domain category index, and decision FAQ.
 ---
 
 # Skill Catalog — Navigation & Dispatch Index
@@ -73,12 +73,18 @@ Use this table for fast lookup. Find the scenario closest to your current task, 
 | Internationalization, localization, locale | `i18n-l10n-patterns` |
 | Code documentation, docstrings, ADRs | `code-documentation-patterns` |
 | Testing strategy, unit/integration/E2E | `testing-patterns` |
+| Building an AI feature, RAG pipeline, prompt engineering | `ai-ml-integration-patterns` |
+| LLM tool use, function calling, structured output, hallucination mitigation | `ai-ml-integration-patterns` |
+| Monorepo tooling, dev containers, platform engineering, DX-first API design | `developer-experience-patterns` |
+| Developer onboarding, local-prod parity, fast feedback loops | `developer-experience-patterns` |
+| File upload, presigned URLs, resumable uploads, upload security | `file-upload-media-patterns` |
+| Image optimization, async media processing, CDN transforms, content-addressable storage | `file-upload-media-patterns` |
 
 ---
 
 ### Category Index by Domain
 
-The 49 skills are organized into 12 domains. Use this index when you want to explore an area broadly rather than targeting a specific task.
+The 54 skills are organized into 15 domains. Use this index when you want to explore an area broadly rather than targeting a specific task.
 
 ---
 
@@ -242,6 +248,36 @@ Keep knowledge accessible and behavior verified.
 
 ---
 
+#### AI & ML Integration (1 skill)
+
+Design and review code that integrates large language models and ML systems.
+
+| Skill | Purpose |
+|-------|---------|
+| `ai-ml-integration-patterns` | RAG pipelines, prompt engineering, structured output, tool use/function calling, LLM error handling, token budget management, hallucination mitigation, AI/ML anti-patterns |
+
+---
+
+#### Developer Experience (1 skill)
+
+Build and improve the internal developer platform, tooling, and workflows.
+
+| Skill | Purpose |
+|-------|---------|
+| `developer-experience-patterns` | Monorepo tooling (Nx/Turborepo), dev containers, golden path / platform engineering, local-prod parity, fast feedback loops, DX-first API design, developer onboarding |
+
+---
+
+#### File & Media Processing (1 skill)
+
+Design and review file upload pipelines and media processing systems.
+
+| Skill | Purpose |
+|-------|---------|
+| `file-upload-media-patterns` | Presigned URL direct-to-storage uploads, resumable uploads (tus/S3 multipart), upload security pipeline (MIME validation, virus scanning, quarantine), async media processing, image optimization, CDN transforms, content-addressable storage |
+
+---
+
 ### What Skill For...? — Decision FAQ
 
 Common questions that land in the catalog and the right skill to reach for.
@@ -324,9 +360,12 @@ Use `multi-tenancy-patterns` as the primary skill. Supplement with `auth-authz-p
 | DevOps and Infrastructure | 5 |
 | Frontend and UX | 2 |
 | Documentation and Testing | 2 |
-| **Total** | **52** |
+| AI & ML Integration | 1 |
+| Developer Experience | 1 |
+| File & Media Processing | 1 |
+| **Total** | **55** |
 
-Note: Some skills appear in multiple categories because they cross domain boundaries (e.g., `anti-patterns-catalog` is listed under both Code Review and Anti-Patterns). The unique skill count in the library is 49.
+Note: Some skills appear in multiple categories because they cross domain boundaries (e.g., `anti-patterns-catalog` is listed under both Code Review and Anti-Patterns). The unique skill count in the library is 54.
 
 ---
 

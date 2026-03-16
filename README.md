@@ -1,8 +1,8 @@
 # Refactoring & Design Pattern Skills for Claude Code
 
-A comprehensive library of **50 skills** for [Claude Code](https://claude.ai/claude-code) covering refactoring, design patterns, code review, software engineering best practices, microservices, distributed systems, DevOps, security, and more across **6 programming languages**. Built from [refactoring.guru](https://refactoring.guru/), Gang of Four patterns, OWASP, and industry best practices.
+A comprehensive library of **54 skills** for [Claude Code](https://claude.ai/claude-code) covering refactoring, design patterns, code review, software engineering best practices, microservices, distributed systems, DevOps, security, AI/ML integration, and more across **6 programming languages**. Built from [refactoring.guru](https://refactoring.guru/), Gang of Four patterns, OWASP, and industry best practices.
 
-## Skills Library (50 skills, ~22,000 lines)
+## Skills Library (54 skills, ~25,000+ lines)
 
 ### Refactoring Techniques (8 skills)
 | Skill | Coverage |
@@ -92,31 +92,39 @@ A comprehensive library of **50 skills** for [Claude Code](https://claude.ai/cla
 | `graphql-grpc-api-patterns` | Schema design, N+1/DataLoader, Protobuf field numbering, gRPC streaming, breaking changes |
 | `api-rate-limiting-throttling` | Token Bucket, Leaky Bucket, Sliding Window, Redis Lua scripts, client-side backoff |
 
-### Security & Auth (3 skills)
+### Security & Auth (2 skills)
 | Skill | Coverage |
 |-------|----------|
 | `auth-authz-patterns` | OAuth2, OIDC, JWT, RBAC/ABAC, mTLS, service-to-service auth, session security |
 | `multi-tenancy-patterns` | RLS, schema-per-tenant, DB-per-tenant, tenant context propagation, tenant-aware caching |
-| `state-management-patterns` | Flux/Redux, React Query/SWR, optimistic updates, XState FSM, session management |
 
-### Frontend & Client (2 skills)
+### Frontend & Client (3 skills)
 | Skill | Coverage |
 |-------|----------|
 | `state-management-patterns` | Flux/Redux, React Query/SWR, optimistic updates, XState FSM, session management |
 | `i18n-l10n-patterns` | ICU MessageFormat, CLDR plurals, Intl API, RTL layout, pseudo-localization testing |
+| `file-upload-media-patterns` | Multipart uploads, chunked transfer, presigned URLs, media processing pipelines, storage strategies |
 
-### Documentation & Observability (3 skills)
+### Documentation & Observability (2 skills)
 | Skill | Coverage |
 |-------|----------|
 | `code-documentation-patterns` | ADRs, OpenAPI/AsyncAPI, README standards, runbooks, technical debt registers |
 | `distributed-tracing-patterns` | OpenTelemetry, span design, context propagation, sampling strategies, trace-based testing |
-| `observability-patterns` | Logging, Tracing, Metrics, Health Checks, Alerting |
 
-### Validation & Type Safety (2 skills)
+### AI & ML (1 skill)
 | Skill | Coverage |
 |-------|----------|
-| `data-validation-schema-patterns` | Zod, Pydantic v2, Bean Validation, schema evolution, coercion vs strict parsing |
-| `type-system-patterns` | 10 type patterns: Branded Types, Phantom Types, etc. |
+| `ai-ml-integration-patterns` | LLM integration, prompt engineering, RAG pipelines, model versioning, evaluation frameworks, cost optimization |
+
+### Developer Experience (1 skill)
+| Skill | Coverage |
+|-------|----------|
+| `developer-experience-patterns` | DX metrics, onboarding flows, CLI ergonomics, toolchain design, feedback loops, documentation-as-code |
+
+### Skill Catalog (1 skill)
+| Skill | Coverage |
+|-------|----------|
+| `skill-catalog` | Master index of all skills with usage guidance and cross-references |
 
 ## Installation
 
@@ -178,10 +186,13 @@ Skills activate automatically based on context. Start any code review with `/rev
 - **Data & search** → `data-pipeline-patterns`, `search-indexing-patterns`, `caching-strategies`
 - **APIs** → `graphql-grpc-api-patterns`, `api-rate-limiting-throttling`, `review-api-contract`
 - **Domain modeling** → `domain-driven-design-patterns`, `migration-patterns`
-- **Frontend** → `state-management-patterns`, `i18n-l10n-patterns`
+- **Frontend** → `state-management-patterns`, `i18n-l10n-patterns`, `file-upload-media-patterns`
 - **Observability** → `observability-patterns`, `distributed-tracing-patterns`
 - **Documentation** → `code-documentation-patterns`
 - **Multi-tenant systems** → `multi-tenancy-patterns`
+- **AI/ML integration** → `ai-ml-integration-patterns`
+- **Developer experience** → `developer-experience-patterns`
+- **Skill discovery** → `skill-catalog`
 
 ## Coverage Summary
 
@@ -207,6 +218,7 @@ Skills activate automatically based on context. Start any code review with `/rev
 | CI/CD Patterns | Pipeline stages, GitOps, blue-green, canary, SLSA |
 | Caching Patterns | Cache-aside, read/write-through, stampede prevention, CDN |
 | Auth/Authz Patterns | OAuth2, OIDC, JWT, RBAC, ABAC, mTLS |
+| AI/ML Patterns | LLM integration, RAG, prompt engineering, model versioning |
 | Languages Covered | 6 (TypeScript, Python, Java, Go, Rust, C++) |
 
 ## License
