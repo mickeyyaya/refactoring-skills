@@ -3,19 +3,16 @@ name: refactoring-decision-matrix
 description: Use when you have identified a code smell and need to select the right refactoring technique, assess risk, and prioritize the work — maps all 23 code smells to specific fix paths, difficulty levels, and risk ratings
 ---
 
+Prerequisite: Run `detect-code-smells` first to identify issues, then use this matrix to select the fix.
+
 # Refactoring Decision Matrix
 
-## Overview
+## How to Use
 
-This skill is the master navigation guide: "I see THIS smell, I should use THAT technique." It synthesizes the entire refactoring skill library into a single decision aid. Use it after `detect-code-smells` confirms a smell and before diving into a specific refactoring skill.
-
-## How to Use This Matrix
-
-1. Identify the smell category from `detect-code-smells`
+1. Identify the smell from `detect-code-smells`
 2. Find the smell row in the matrix below
-3. Select the primary or secondary fix based on context
-4. Check the difficulty and risk columns before starting
-5. Apply the "When NOT to Refactor" rules to validate now is the right time
+3. Select fix based on context; check difficulty and risk
+4. Apply the "When NOT to Refactor" rules before starting
 
 ---
 
@@ -71,133 +68,110 @@ This skill is the master navigation guide: "I see THIS smell, I should use THAT 
 
 ---
 
-## Risk Level Definitions
+## Risk and Difficulty Levels
 
 | Risk | Meaning | Precondition |
 |------|---------|--------------|
-| **Low** | Change is local; easy to verify; one class or method affected | Basic test coverage on the affected unit |
-| **Medium** | Multiple callers affected or inheritance involved; regression risk | Integration tests covering the changed path |
-| **High** | Public API changes, hierarchy restructuring, or cross-module moves | Full test coverage + migration plan for callers |
-
-## Difficulty Level Definitions
+| **Low** | Local change; one class or method affected | Basic test coverage |
+| **Medium** | Multiple callers or inheritance involved | Integration tests on changed path |
+| **High** | Public API changes, hierarchy restructuring, cross-module moves | Full test coverage + migration plan |
 
 | Difficulty | Meaning |
 |-----------|---------|
-| **Easy** | Mechanical transformation; IDE can automate most of it; < 30 min |
-| **Medium** | Requires design judgment; affects multiple files; 30 min – 2 hours |
-| **Hard** | Requires architectural reasoning; may need staged rollout; 2+ hours |
+| **Easy** | Mechanical; IDE-automatable; < 30 min |
+| **Medium** | Design judgment needed; multiple files; 30 min – 2 hours |
+| **Hard** | Architectural reasoning; may need staged rollout; 2+ hours |
 
 ---
 
 ## When NOT to Refactor
 
-These conditions override any smell severity. Stop and reassess before touching code when:
+Stop and reassess when:
 
-1. **Code is about to be deleted or replaced.** Refactoring code that will be gone next sprint wastes time and introduces risk for no lasting benefit.
-
-2. **No tests exist and adding them first is not feasible.** Refactoring without a safety net converts a smell into a potential bug. Add tests first, or defer the refactor.
-
-3. **Ship deadline is within 48 hours.** Feature or fix delivery takes priority. Log the smell as tech debt instead.
-
-4. **The "improvement" adds more complexity than it removes.** If extracting a class requires a new abstraction layer with its own lifecycle, configuration, and dependencies, the cure may be worse than the disease. Measure before acting.
-
-5. **Refactoring changes a public API without a migration plan.** Breaking callers creates downstream bugs. Prepare a deprecation path or versioned interface before restructuring public contracts.
-
-6. **You are in the middle of a different refactoring.** Concurrent refactors multiply the chance of merge conflicts and half-broken states. Finish one, commit, then start the next.
+1. **Code is about to be deleted or replaced.** No lasting benefit.
+2. **No tests exist and adding them first is not feasible.** Refactor without a safety net converts smell into bug.
+3. **Ship deadline is within 48 hours.** Log as tech debt instead.
+4. **The "improvement" adds more complexity than it removes.** Measure before acting.
+5. **Refactoring changes a public API without a migration plan.** Prepare deprecation path first.
+6. **You are mid-refactoring.** Finish one, commit, then start the next.
 
 ---
 
 ## Prioritization Framework
 
-Use this to decide WHEN to do the work, not whether the smell exists.
+### CRITICAL — Fix Now (before next commit)
 
-### CRITICAL — Fix Now (before the next commit)
-
-These smells hide bugs or make the current change impossible to implement safely:
-
+Smells that hide bugs or block safe implementation:
 - Shotgun Surgery blocking the feature you are adding
-- Inappropriate Intimacy where you cannot isolate a failing test
-- Dead Code that masks unreachable error branches
-- Any smell with HIGH risk that is on the change path for today's work
-
-**Action:** Refactor before writing new code. Do not ship the feature without fixing this.
+- Inappropriate Intimacy preventing test isolation
+- Dead Code masking unreachable error branches
+- Any HIGH-risk smell on today's change path
 
 ### HIGH — Fix During the Feature (same PR)
 
-These smells slow the current feature work but do not block it:
+Smells slowing current work:
+- Long Method in code you must modify
+- Duplicate Code you are about to copy a third time
+- Switch Statements you must extend
+- Feature Envy in a method you are changing
 
-- Long Method in code you must read and modify
-- Duplicate Code for logic you are about to add a third copy of
-- Switch Statements you must extend with a new branch
-- Feature Envy for a method you are adding a parameter to
+### MEDIUM — Schedule Dedicated Time
 
-**Action:** Refactor the specific section you touch. Keep the diff small.
-
-### MEDIUM — Schedule Dedicated Time (tech-debt sprint or next quarter)
-
-These smells slow the team but are not on the immediate change path:
-
+Not on the immediate path but slowing the team:
 - Large Class not involved in current feature
-- Primitive Obsession for domain concepts used in 3+ places
-- Divergent Change in a module that changes frequently (measured over the last 10 commits)
-- Alternative Classes with Different Interfaces causing confusion in code review
+- Primitive Obsession for domain concepts in 3+ places
+- Divergent Change in frequently-modified modules
+- Alternative Classes causing code review confusion
 
-**Action:** Add to the team backlog with a severity label. Assign during planning.
+### LOW — Fix Opportunistically
 
-### LOW — Fix Opportunistically (when you are already in the file)
-
-These smells cost comprehension but do not block work:
-
+Cost comprehension but do not block work:
 - Excessive Comments on stable code
 - Lazy Class or Middle Man with no active development
 - Speculative Generality in rarely-touched code
-- Dead Code detected by static analysis in modules with good test coverage
-
-**Action:** Fix if you are already editing the file. Do not create a dedicated PR for these alone.
+- Dead Code in well-tested modules
 
 ---
 
 ## Smell Frequency Heuristics
 
-These heuristics help you judge severity when the matrix alone is not enough:
+- **1 place**: fix opportunistically
+- **3-5 places**: schedule dedicated time
+- **6+ places**: treat as CRITICAL or HIGH regardless of category
 
-- If a smell appears in **1 place**: fix opportunistically
-- If a smell appears in **3-5 places**: schedule dedicated time
-- If a smell appears in **6+ places**: treat as CRITICAL or HIGH regardless of category
-
-Duplicate Code and Switch Statements are particularly dangerous at scale — each copy or branch that must be updated consistently is a future bug waiting to happen.
+Duplicate Code and Switch Statements are particularly dangerous at scale.
 
 ---
 
-## Compound Smells (Smells That Travel Together)
+## Compound Smells
 
-Certain smells co-occur reliably. Detecting one should trigger a search for its companions before you start refactoring, because fixing one in isolation often leaves the root cause intact.
+Certain smells co-occur. Detect one, search for its companions before refactoring.
 
-| Primary Smell Found | Likely Companions | Root Cause |
-|--------------------|-------------------|------------|
-| Large Class | Divergent Change, Duplicate Code | Single Responsibility violated — multiple concerns fused over time |
-| Long Method | Excessive Comments, Duplicate Code, Long Parameter List | Incremental growth without decomposition |
-| Primitive Obsession | Data Clumps, Long Parameter List | Missing domain value object |
-| Switch Statements | Duplicate Code, Parallel Inheritance Hierarchies | Type code used instead of polymorphism |
-| Feature Envy | Message Chains, Inappropriate Intimacy | Behavior placed in the wrong class |
-| Shotgun Surgery | Duplicate Code, Data Clumps | Scattered responsibility without a single owner |
-| Refused Bequest | Temporary Field, Alternative Classes with Different Interfaces | Inheritance used for code reuse, not type relationships |
+| Primary Smell | Likely Companions | Root Cause |
+|--------------|-------------------|------------|
+| Large Class | Divergent Change, Duplicate Code | SRP violated |
+| Long Method | Excessive Comments, Duplicate Code, Long Parameter List | Growth without decomposition |
+| Primitive Obsession | Data Clumps, Long Parameter List | Missing value object |
+| Switch Statements | Duplicate Code, Parallel Inheritance Hierarchies | Type code instead of polymorphism |
+| Feature Envy | Message Chains, Inappropriate Intimacy | Behavior in wrong class |
+| Shotgun Surgery | Duplicate Code, Data Clumps | Scattered responsibility |
+| Refused Bequest | Temporary Field, Alternative Classes | Inheritance for reuse, not type relationships |
 
-**Compound refactoring order:** Address the root cause smell first. Trying to clean companions without fixing the root cause often leaves the code in a worse state than before — you remove one symptom while the underlying structural problem generates the same smell again.
+**Rule:** Fix the root cause smell first. Fixing companions alone leaves the structural problem intact.
 
 ---
 
 ## Refactoring Sequencing Rules
 
-When multiple smells are present in the same module, apply fixes in this order to avoid rework:
+When multiple smells coexist, fix in this order:
 
-1. **Dead Code first** — remove noise before analyzing structure
-2. **Duplicate Code second** — consolidate before extracting; extracting duplicated code compounds the problem
-3. **Long Method / Large Class third** — decompose the structure once the signal is clear
-4. **Coupling smells fourth** (Feature Envy, Inappropriate Intimacy, Message Chains) — move behavior only after class boundaries are stable
-5. **Generalization smells last** (Refused Bequest, Parallel Inheritance Hierarchies) — restructure hierarchies only after the individual classes are clean
+1. **Dead Code** — remove noise before analyzing structure
+2. **Duplicate Code** — consolidate before extracting
+3. **Long Method / Large Class** — decompose once signal is clear
+4. **Coupling smells** (Feature Envy, Inappropriate Intimacy, Message Chains) — move behavior after class boundaries stabilize
+5. **Generalization smells** (Refused Bequest, Parallel Inheritance) — restructure hierarchies after classes are clean
 
-Committing after each smell fixed keeps the git history reviewable and makes rollback surgical rather than wholesale.
+Commit after each fix for reviewable history and surgical rollback.
 
 ---
 
@@ -211,6 +185,6 @@ Committing after each smell fixed keeps the git history reviewable and makes rol
 | Replace Conditional with Polymorphism, Decompose Conditional | `refactor-simplifying-conditionals` |
 | Introduce Parameter Object, Replace Parameter with Method Call | `refactor-simplifying-method-calls` |
 | Replace Data Value with Object, Encapsulate Field, Null Object | `refactor-organizing-data` |
-| Extract Superclass, Replace Inheritance with Delegation, Collapse Hierarchy | `refactor-generalization` |
-| Pipeline composition, functional patterns for async code | `refactor-functional-patterns` |
-| End-to-end examples tracing smell → anti-pattern → refactor → design pattern | `pattern-detection-walkthroughs` |
+| Extract Superclass, Replace Inheritance with Delegation | `refactor-generalization` |
+| Pipeline composition, functional patterns | `refactor-functional-patterns` |
+| End-to-end smell → anti-pattern → refactor → pattern examples | `pattern-detection-walkthroughs` |
