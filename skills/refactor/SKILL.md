@@ -111,29 +111,49 @@ For each selected issue:
 4. Check type improvements → `type-system-patterns`
 5. Record the **complete file set** each fix will touch (source files + test files)
 
-#### Step 2: Dependency analysis & partitioning
+#### Step 2: Dependency analysis & partitioning (STRICT ISOLATION)
 
-Build a dependency graph of all planned fixes:
+Build a dependency graph of all planned fixes. **Each worktree MUST be fully isolated — zero file overlap between groups.**
 
-1. For each fix, list every file it will read or write
-2. Two fixes are **dependent** if they share any file in their write set
-3. Two fixes are **independent** if their write sets are completely disjoint
+1. For each fix, list every file it will **read, write, or import from** (source files, test files, shared config, shared types)
+2. Expand transitive dependencies: if fix A writes `auth.ts` and fix B writes `middleware.ts` which imports from `auth.ts`, they are **dependent** — group them together
+3. Two fixes are **independent** ONLY if:
+   - Their write sets are completely disjoint
+   - Neither reads a file the other writes
+   - They share no import/dependency chain
+   - They share no shared state files (config, constants, types, schemas)
 4. Group dependent fixes together into a **refactoring group**
 5. Each group gets a descriptive slug based on its primary fix
 
+**Isolation verification matrix** — build this table and verify every cell is empty before approving parallel mode:
+
 ```
-| Group | Slug | Issues | Files | Subagent |
-|-------|------|--------|-------|----------|
-| A | extract-auth | #1, #3 | src/auth.ts, src/middleware.ts | subagent-A |
-| B | simplify-payment | #2 | src/payment.ts | subagent-B |
-| C | cleanup-utils | #4, #5 | src/utils.ts, src/helpers.ts | subagent-C |
+|            | Group A files | Group B files | Group C files |
+|------------|---------------|---------------|---------------|
+| Group A    | —             | (must be ∅)   | (must be ∅)   |
+| Group B    | (must be ∅)   | —             | (must be ∅)   |
+| Group C    | (must be ∅)   | (must be ∅)   | —             |
+```
+
+If ANY cell is non-empty (files appear in multiple groups), merge those groups into one.
+
+**Partition result table:**
+
+```
+| Group | Slug | Issues | Write Set | Read Set | Isolated? |
+|-------|------|--------|-----------|----------|-----------|
+| A | extract-auth | #1, #3 | src/auth.ts, src/middleware.ts | src/types.ts | ✓ |
+| B | simplify-payment | #2 | src/payment.ts | src/types.ts | ✓ |
+| C | cleanup-utils | #4, #5 | src/utils.ts, src/helpers.ts | — | ✓ |
 ```
 
 **Rules:**
 - If ALL fixes are in 1 group → sequential mode (single worktree)
 - If 2+ independent groups exist → parallel mode (multiple worktrees)
-- Groups with shared test files but disjoint source files are still independent (tests are re-run per group anyway)
-- If unsure whether files overlap, err on the side of grouping them together (sequential is always safe)
+- Read-only shared files (e.g., `types.ts` read by both A and B but written by neither) do NOT create a dependency — reads are safe to share
+- Shared test files that both groups run but neither modifies are safe to share
+- **If ANY doubt about file overlap exists, merge the groups** — sequential is always safe, parallel with overlap is always broken
+- Config files (`package.json`, `tsconfig.json`, `.env`) are implicitly shared — if a fix modifies a config file, it MUST be in its own sequential group or all groups must be merged
 
 #### Step 3: Present the partition plan
 
@@ -194,32 +214,66 @@ Agent(prompt: "...", description: "Refactor: <slug-C>", run_in_background: true)
 
 #### Subagent Execution Prompt Template
 
-Each subagent receives:
+Each subagent receives a prompt that enforces strict isolation:
 
 ```markdown
-You are a refactoring subagent. Work ONLY in the worktree directory: <worktree-path>
+You are a refactoring subagent. You operate in COMPLETE ISOLATION.
+
+## Your Worktree
+Directory: <worktree-path>
+Branch: refactor/<slug>
 
 ## Your Assignment
 Issues: <list of issue numbers and descriptions>
-Files to modify: <file list>
 Techniques: <technique per issue with skill reference>
 
+## ALLOWED files (exclusive to this worktree — no other subagent touches these)
+Write set: <explicit file list — you may modify ONLY these files>
+Read set: <explicit file list — you may read these but MUST NOT modify them>
+
+## FORBIDDEN files (other subagents own these — DO NOT TOUCH)
+<explicit list of all files assigned to other groups>
+
 ## Instructions
-1. cd to the worktree directory
-2. For each assigned issue:
+1. cd to the worktree directory: `cd <worktree-path>`
+2. Before ANY edit, verify the file is in your ALLOWED write set
+3. For each assigned issue:
    a. Apply the refactoring technique step by step
    b. Follow immutability principles — never mutate, always create new
    c. Keep changes minimal — only fix what was assigned
    d. Commit each fix as a separate commit with a descriptive message
-3. Run the test suite: <test command>
-4. If tests fail, fix the issue before proceeding
-5. Report back: which issues were fixed, test results, any blockers
+4. Run the test suite: <test command>
+5. If tests fail, fix the issue — but only in your ALLOWED write set
+6. Before reporting, run `git diff --name-only main` and verify EVERY changed file is in your ALLOWED write set
+7. Report back: which issues were fixed, test results, files changed, any blockers
 
-## Constraints
-- Do NOT modify files outside your assigned file set
-- Do NOT merge into main — the orchestrator handles merging
-- Do NOT delete the worktree — the orchestrator handles cleanup
+## HARD CONSTRAINTS (violations = immediate abort)
+- MUST NOT modify files outside your ALLOWED write set
+- MUST NOT modify files in the FORBIDDEN list
+- MUST NOT modify shared config files (package.json, tsconfig.json, .env, etc.)
+- MUST NOT merge into main — the orchestrator handles merging
+- MUST NOT delete the worktree — the orchestrator handles cleanup
+- MUST NOT create new files outside your assigned directories
+- MUST verify isolation before final commit: `git diff --name-only main` must only show ALLOWED files
 ```
+
+#### Post-execution isolation audit
+
+After each subagent completes, the orchestrator MUST verify isolation before merging:
+
+```bash
+# For each completed worktree, check that only allowed files were changed
+cd <worktree-path>
+git diff --name-only main > /tmp/changed-files-<slug>.txt
+# Compare against the group's allowed write set
+# If ANY file outside the write set was modified → REJECT the branch, do NOT merge
+```
+
+If a subagent violated isolation:
+1. Do NOT merge the branch
+2. Report the violation (which files were touched that shouldn't have been)
+3. **If auto mode:** Skip and warn
+4. **If interactive:** Ask user how to proceed
 
 #### Waiting for subagents
 
