@@ -9,6 +9,17 @@ description: Use when the user asks to refactor code, review code quality, or fi
 
 Single entry point that orchestrates the complete refactoring workflow: detect smells → identify anti-patterns → select technique → apply fix → verify.
 
+## Auto Mode Detection
+
+Before starting, check if the user is in **bypass/yolo mode** (auto-accept permissions enabled). Detection signals:
+- User explicitly said "yolo mode", "bypass permissions", or "auto-accept"
+- The session is running with `--dangerously-skip-permissions` or equivalent
+- Tools are being auto-approved without user prompts
+
+**When auto mode is detected:** Skip all confirmation prompts in Phases 2 and 3. Automatically select "all" issues and "yes" to proceed. Plan all todos upfront and implement sequentially without pausing. This enables fully autonomous refactoring.
+
+**When auto mode is NOT detected:** Pause for user confirmation at each checkpoint as described below.
+
 ## Workflow
 
 Execute these phases in order. Stop early if the user only wants a specific phase.
@@ -41,7 +52,8 @@ Use `refactoring-decision-matrix` to:
 | # | Issue | Fix Technique | Skill | Difficulty | Risk |
 ```
 
-Ask user: **"Which issues should I fix? (all / numbers / skip)"**
+**If auto mode:** Select all issues automatically and proceed to Phase 3.
+**If interactive:** Ask user: **"Which issues should I fix? (all / numbers / skip)"**
 
 ### Phase 3: Plan
 
@@ -59,14 +71,17 @@ For each selected issue:
 4. Check type improvements → `type-system-patterns`
 5. Present the plan: what changes, why, before/after preview
 
-Ask user: **"Proceed with this plan? (yes / modify / skip)"**
+**If auto mode:** Proceed immediately — create a todo list for all planned changes and execute them sequentially.
+**If interactive:** Ask user: **"Proceed with this plan? (yes / modify / skip)"**
 
 ### Phase 4: Execute
 
-1. Apply the refactoring technique step by step
-2. Follow immutability principles — never mutate, always create new
-3. Keep changes minimal — only fix what was agreed
-4. Run tests after each change if test command is available
+1. **If auto mode:** Create a TodoWrite checklist of all planned refactorings, then work through each item sequentially — mark in_progress when starting, completed when done
+2. Apply the refactoring technique step by step
+3. Follow immutability principles — never mutate, always create new
+4. Keep changes minimal — only fix what was agreed
+5. Run tests after each change if test command is available
+6. **If auto mode:** Continue to next todo item without pausing. Only stop if tests fail or a change introduces new critical issues
 
 ### Phase 5: Verify
 
@@ -88,6 +103,7 @@ The user can scope the refactoring with arguments:
 | `/refactor security` | Security-focused scan using `security-patterns-code-review` |
 | `/refactor performance` | Performance-focused scan using `performance-anti-patterns` |
 | `/refactor review` | Full code review using `review-cheat-sheet` as guide |
+| `/refactor auto` | Force auto mode — plan all todos and implement without confirmation |
 
 ## Cross-Reference Map
 
