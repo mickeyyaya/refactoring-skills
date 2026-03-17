@@ -20,6 +20,35 @@ Before starting, check if the user is in **bypass/yolo mode** (auto-accept permi
 
 **When auto mode is NOT detected:** Pause for user confirmation at each checkpoint as described below.
 
+## Git Isolation (MANDATORY)
+
+All refactoring work MUST be done in an isolated git worktree branched from main. Never commit directly to main.
+
+### Worktree Lifecycle
+
+**Before Phase 1:**
+1. Ensure the working tree is clean (`git status --porcelain` must be empty)
+2. Create an isolated worktree and branch:
+   ```bash
+   git worktree add ../refactor-worktree -b refactor/<descriptive-slug>
+   ```
+3. All subsequent phases execute inside the worktree directory
+
+**After Phase 5 (all tests pass):**
+1. Return to the main working directory
+2. Merge the branch into main:
+   ```bash
+   git merge refactor/<descriptive-slug>
+   ```
+3. Push main
+4. Clean up — remove the worktree and delete the branch:
+   ```bash
+   git worktree remove ../refactor-worktree
+   git branch -d refactor/<descriptive-slug>
+   ```
+
+**If tests fail or verification finds new issues:** Fix them in the worktree before merging. Never merge a failing branch.
+
 ## Workflow
 
 Execute these phases in order. Stop early if the user only wants a specific phase.
