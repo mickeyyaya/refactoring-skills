@@ -44,11 +44,8 @@ Well-structured pipelines define explicit stages (lint, test, build, deploy) wit
 **GitHub Actions — parallel jobs with fan-in:**
 ```yaml
 # .github/workflows/ci.yml
-name: CI
-
 on:
-  push:
-    branches: [main, "release/**"]
+  push: { branches: [main, "release/**"] }
   pull_request:
 
 jobs:
@@ -58,8 +55,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 20, cache: npm }
-      - run: npm ci
-      - run: npm run lint
+      - run: npm ci && npm run lint
 
   unit-test:
     runs-on: ubuntu-latest
@@ -67,15 +63,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 20, cache: npm }
-      - run: npm ci
-      - run: npm test -- --coverage
+      - run: npm ci && npm test -- --coverage
       - uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: coverage/
+        with: { name: coverage-report, path: coverage/ }
 
   build:
-    needs: [lint, unit-test]   # fan-in: only run after both pass
+    needs: [lint, unit-test]   # fan-in
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -83,9 +76,7 @@ jobs:
         with: { node-version: 20, cache: npm }
       - run: npm ci && npm run build
       - uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/
+        with: { name: dist, path: dist/ }
 
   deploy-staging:
     needs: build
@@ -97,52 +88,7 @@ jobs:
       - run: ./scripts/deploy.sh staging
 ```
 
-**GitLab CI — stages with parallel matrix:**
-```yaml
-# .gitlab-ci.yml
-stages: [lint, test, build, deploy]
-
-default:
-  image: node:20-alpine
-  cache:
-    key: "$CI_COMMIT_REF_SLUG"
-    paths: [node_modules/]
-
-lint:
-  stage: lint
-  script: [npm ci, npm run lint]
-
-test:unit:
-  stage: test
-  script: [npm ci, npm test -- --coverage]
-  artifacts:
-    reports:
-      coverage_report:
-        coverage_format: cobertura
-        path: coverage/cobertura-coverage.xml
-
-test:e2e:
-  stage: test
-  parallel:
-    matrix:
-      - BROWSER: [chrome, firefox, webkit]
-  script: [npm ci, npx playwright test --project=$BROWSER]
-
-build:
-  stage: build
-  needs: [lint, test:unit]
-  script: [npm ci, npm run build]
-  artifacts:
-    paths: [dist/]
-    expire_in: 1 day
-
-deploy:staging:
-  stage: deploy
-  needs: [build]
-  environment: staging
-  script: [./scripts/deploy.sh staging]
-  only: [main]
-```
+GitLab CI: equivalent via `stages:` + `needs:` + `rules:`; matrix via `parallel: { matrix: [...] }`.
 
 ---
 
@@ -182,29 +128,23 @@ spec:
       - CreateNamespace=true
 ```
 
-**Terraform pipeline pattern (GitHub Actions):**
+**Terraform pipeline (GitHub Actions):**
 ```yaml
-# .github/workflows/terraform.yml
+# plan job: terraform init + plan -out=tfplan → upload artifact
+# apply job: needs: plan, environment: production (manual approval gate) → download + apply
 jobs:
   plan:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
-      - name: Terraform Init
-        run: terraform init
-        env:
-          TF_VAR_environment: staging
-      - name: Terraform Plan
-        id: plan
-        run: terraform plan -out=tfplan -no-color
-      - name: Upload plan
-        uses: actions/upload-artifact@v4
+      - run: terraform init && terraform plan -out=tfplan
+        env: { TF_VAR_environment: staging }
+      - uses: actions/upload-artifact@v4
         with: { name: tfplan, path: tfplan }
-
   apply:
     needs: plan
-    environment: production   # requires manual approval
+    environment: production
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -242,14 +182,12 @@ Every minute shaved from a pipeline is a minute developers spend on code instead
       apps/api/node_modules
       apps/web/node_modules
     key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
-    restore-keys: |
-      ${{ runner.os }}-npm-
+    restore-keys: ${{ runner.os }}-npm-
 ```
 
 **Docker layer caching with BuildKit:**
 ```yaml
-- name: Build and push
-  uses: docker/build-push-action@v5
+- uses: docker/build-push-action@v5
   with:
     context: .
     push: true
@@ -258,23 +196,17 @@ Every minute shaved from a pipeline is a minute developers spend on code instead
     cache-to: type=registry,ref=ghcr.io/org/app:buildcache,mode=max
 ```
 
-**Incremental build script (bash, skip unchanged packages):**
+**Incremental build — skip unchanged packages:**
 ```bash
 #!/usr/bin/env bash
-# scripts/build-changed.sh — build only packages changed since base branch
 set -euo pipefail
-
 BASE=${BASE_BRANCH:-origin/main}
 CHANGED=$(git diff --name-only "$BASE"...HEAD | xargs -I{} dirname {} | sort -u)
-
 for PKG in packages/*/; do
   PKG_NAME=$(basename "$PKG")
-  if echo "$CHANGED" | grep -q "^packages/$PKG_NAME"; then
-    echo "Building $PKG_NAME (changed)"
-    npm run build --workspace="$PKG"
-  else
-    echo "Skipping $PKG_NAME (unchanged)"
-  fi
+  echo "$CHANGED" | grep -q "^packages/$PKG_NAME" \
+    && npm run build --workspace="$PKG" \
+    || echo "Skipping $PKG_NAME (unchanged)"
 done
 ```
 
@@ -291,82 +223,53 @@ The right deployment strategy depends on your tolerance for downtime, traffic sp
 - Rolling update with `maxUnavailable: 100%` — equivalent to recreate
 - No smoke test after deploy before serving traffic
 
-**Blue-Green Deployment (GitHub Actions + AWS ALB):**
+**Blue-Green Deployment (GitHub Actions + AWS ECS):**
 ```yaml
 deploy-blue-green:
   runs-on: ubuntu-latest
   steps:
-    - name: Deploy to Green
-      run: |
-        aws ecs update-service \
-          --cluster prod \
-          --service my-app-green \
-          --force-new-deployment
-
-    - name: Wait for Green to stabilize
-      run: |
-        aws ecs wait services-stable \
-          --cluster prod \
-          --services my-app-green
-
-    - name: Smoke test Green
-      run: curl --fail https://green.internal.example.com/health
-
-    - name: Shift traffic to Green
-      run: |
+    - run: aws ecs update-service --cluster prod --service my-app-green --force-new-deployment
+    - run: aws ecs wait services-stable --cluster prod --services my-app-green
+    - run: curl --fail https://green.internal.example.com/health  # smoke test
+    - run: |
         aws elbv2 modify-listener \
           --listener-arn "$LISTENER_ARN" \
           --default-actions Type=forward,TargetGroupArn="$GREEN_TG_ARN"
-
-    - name: Keep Blue running for 30 min (rollback window)
-      run: echo "Blue stays alive; tear down in post-deploy job"
+    # Keep Blue running for 30 min rollback window; tear down in post-deploy job
 ```
 
-**Canary Deployment (Kubernetes + Argo Rollouts):**
+**Canary Deployment (Argo Rollouts — essential fields):**
 ```yaml
-# k8s/rollout.yaml
-apiVersion: argoproj.io/v1alpha1
-kind: Rollout
-metadata:
-  name: my-app
-spec:
-  replicas: 10
-  strategy:
-    canary:
-      steps:
-        - setWeight: 10      # send 10% traffic to canary
-        - pause: { duration: 5m }
-        - analysis:
-            templates:
-              - templateName: success-rate
-        - setWeight: 50
-        - pause: { duration: 10m }
-        - setWeight: 100
-      canaryService: my-app-canary
-      stableService: my-app-stable
+# kind: Rollout  spec.strategy.canary
+canaryService: my-app-canary
+stableService: my-app-stable
+steps:
+  - setWeight: 10
+  - pause: { duration: 5m }
+  - analysis: { templates: [{ templateName: success-rate }] }
+  - setWeight: 50
+  - pause: { duration: 10m }
+  - setWeight: 100
 ```
 
-**Rolling Update (Kubernetes):**
+**Rolling Update (Kubernetes — essential fields):**
 ```yaml
-# Deployment spec — safe rolling update defaults
 spec:
   replicas: 6
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxSurge: 2          # allow 2 extra pods during rollout
-      maxUnavailable: 0    # never take a pod down before new one is ready
+      maxSurge: 2        # allow 2 extra pods during rollout
+      maxUnavailable: 0  # never take a pod down before new one is ready
   template:
     spec:
       containers:
         - name: app
           readinessProbe:
             httpGet: { path: /health, port: 8080 }
-            initialDelaySeconds: 5
-            periodSeconds: 5
 ```
 
-Cross-reference: `feature-flags-progressive-delivery` — combine canary with feature flags for traffic splitting at the application layer without separate infra.
+Cross-reference: `feature-flags-progressive-delivery` — combine canary with feature flags for traffic splitting at the application layer.
 
 ---
 
@@ -380,40 +283,28 @@ Cross-reference: `feature-flags-progressive-delivery` — combine canary with fe
 - Pipeline permissions are `permissions: write-all` by default
 - No SBOM generated — no visibility into what is in the deployed artifact
 
-**Least-privilege permissions (GitHub Actions):**
+**Least-privilege permissions + SHA pinning:**
 ```yaml
 permissions:
-  contents: read       # default: read only
-  packages: write      # only the job that pushes images gets write
+  contents: read
+  id-token: write  # only for OIDC
 
-jobs:
-  build:
-    permissions:
-      contents: read
-      id-token: write  # for OIDC token only
-```
-
-**Pin third-party actions to SHA:**
-```yaml
 # WRONG — mutable tag, supply chain risk
 - uses: actions/checkout@v4
-
 # CORRECT — immutable SHA
 - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 ```
 
 **SBOM generation and artifact signing (cosign + syft):**
 ```yaml
-- name: Generate SBOM
-  uses: anchore/sbom-action@v0
+- uses: anchore/sbom-action@v0
   with:
     image: ghcr.io/org/app:${{ github.sha }}
     artifact-name: sbom.spdx.json
     output-file: sbom.spdx.json
 
 - name: Sign image with cosign (OIDC keyless)
-  run: |
-    cosign sign --yes ghcr.io/org/app:${{ github.sha }}
+  run: cosign sign --yes ghcr.io/org/app:${{ github.sha }}
 
 - name: Attest SBOM
   run: |
@@ -423,17 +314,14 @@ jobs:
       ghcr.io/org/app:${{ github.sha }}
 ```
 
-**Secrets management — never in env plaintext:**
+**Secrets management — OIDC + Vault:**
 ```yaml
-# Use OIDC for cloud provider auth (no long-lived credentials)
 - uses: aws-actions/configure-aws-credentials@v4
   with:
     role-to-assume: arn:aws:iam::123456789:role/github-actions-deploy
     aws-region: us-east-1
 
-# Reference secrets from vault, not repo secrets where possible
-- name: Fetch secrets from Vault
-  uses: hashicorp/vault-action@v3
+- uses: hashicorp/vault-action@v3
   with:
     url: https://vault.example.com
     method: jwt
@@ -443,24 +331,16 @@ jobs:
       secret/data/prod/api API_KEY | API_KEY
 ```
 
-**Dependency audit in pipeline:**
+**Dependency audit:**
 ```bash
 #!/usr/bin/env bash
-# scripts/audit-deps.sh
 set -euo pipefail
-
-echo "=== npm audit ==="
 npm audit --audit-level=high
-
-echo "=== License check ==="
 npx license-checker --onlyAllow "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC"
-
-echo "=== Trivy container scan ==="
-trivy image --exit-code 1 --severity HIGH,CRITICAL \
-  "ghcr.io/org/app:${IMAGE_TAG}"
+trivy image --exit-code 1 --severity HIGH,CRITICAL "ghcr.io/org/app:${IMAGE_TAG}"
 ```
 
-Cross-reference: `security-patterns-code-review` — SAST, secrets detection, and dependency vulnerability patterns for code review.
+Cross-reference: `security-patterns-code-review` — SAST, secrets detection, and dependency vulnerability patterns.
 
 ---
 
@@ -475,8 +355,6 @@ Cross-reference: `security-patterns-code-review` — SAST, secrets detection, an
 
 **Shift-left — test pyramid in CI:**
 
-The test pyramid applied to pipeline stages:
-
 ```
          /\
         /E2E\         — run on main/release branches only (slow, costly)
@@ -487,9 +365,8 @@ The test pyramid applied to pipeline stages:
    /--------------\
 ```
 
-**Unit tests — fast, isolated, no external deps:**
+**Unit tests with coverage gate (GitHub Actions):**
 ```yaml
-# GitHub Actions — unit tests with coverage gate
 unit-test:
   runs-on: ubuntu-latest
   timeout-minutes: 10
@@ -497,53 +374,37 @@ unit-test:
     - uses: actions/checkout@v4
     - uses: actions/setup-node@v4
       with: { node-version: 20, cache: npm }
-    - run: npm ci
-    - run: npm test -- --coverage --coverageThreshold='{"global":{"lines":80}}'
+    - run: npm ci && npm test -- --coverage --coverageThreshold='{"global":{"lines":80}}'
 ```
 
-**Integration tests — service dependencies via Docker Compose:**
+**Integration tests with service container (GitHub Actions):**
 ```yaml
-# GitLab CI — integration test with real DB
-test:integration:
-  stage: test
+integration-test:
   services:
-    - name: postgres:16-alpine
-      alias: db
-  variables:
-    POSTGRES_DB: testdb
-    POSTGRES_USER: test
-    POSTGRES_PASSWORD: test
-    DATABASE_URL: postgres://test:test@db:5432/testdb
-  script:
-    - npm ci
-    - npm run db:migrate
-    - npm run test:integration
+    postgres: { image: postgres:16-alpine, env: { POSTGRES_DB: testdb, POSTGRES_USER: test, POSTGRES_PASSWORD: test } }
+  steps:
+    - run: npm ci && npm run db:migrate && npm run test:integration
+      env: { DATABASE_URL: postgres://test:test@localhost:5432/testdb }
 ```
+GitLab CI: equivalent via `services:` block with `alias:` and job-level `variables:`.
 
-**Flaky test management — quarantine pattern:**
+**Flaky test quarantine:**
 ```bash
 #!/usr/bin/env bash
-# scripts/run-tests-with-quarantine.sh
-# Tests tagged @flaky are run but their failure does not fail the build.
-# Failures are reported to a tracking dashboard for investigation.
 set -euo pipefail
-
-# Run stable tests — any failure fails the build
+# Stable tests — failure fails the build
 npx jest --testPathIgnorePatterns=".*\\.flaky\\.test\\.ts" --ci
-
-# Run quarantined flaky tests — collect results but do not fail
+# Quarantined tests — collect results, do not fail build
 npx jest --testPathPattern=".*\\.flaky\\.test\\.ts" --ci || {
   echo "FLAKY_FAILURES=true" >> "$GITHUB_ENV"
-  # Post to tracking system
   curl -s -X POST "$FLAKY_TRACKER_URL" \
     -H "Content-Type: application/json" \
     -d "{\"branch\": \"$GITHUB_REF_NAME\", \"run\": \"$GITHUB_RUN_ID\"}"
 }
 ```
 
-**Playwright E2E — run only on main, retry on failure:**
+**Playwright E2E — main branch only, with retries:**
 ```yaml
-# .github/workflows/e2e.yml
 e2e:
   runs-on: ubuntu-latest
   if: github.ref == 'refs/heads/main'
@@ -552,13 +413,10 @@ e2e:
     - uses: actions/setup-node@v4
       with: { node-version: 20, cache: npm }
     - run: npm ci && npx playwright install --with-deps
-    - name: Run E2E tests
-      run: npx playwright test --retries=2   # retry once for genuine flakes
+    - run: npx playwright test --retries=2
     - uses: actions/upload-artifact@v4
       if: failure()
-      with:
-        name: playwright-report
-        path: playwright-report/
+      with: { name: playwright-report, path: playwright-report/ }
 ```
 
 Cross-reference: `testing-patterns` — unit, integration, and E2E test structure patterns; contract testing for microservices.
@@ -569,38 +427,23 @@ Cross-reference: `testing-patterns` — unit, integration, and E2E test structur
 
 | Anti-Pattern | Description | Fix |
 |-------------|-------------|-----|
-| **Long-Running Pipeline** | Single pipeline takes >30 min; developer context-switches away | Split into fast (lint/unit) and slow (E2E) tiers; fast tier on every commit |
-| **Snowflake Configuration** | Each service has its own hand-crafted pipeline; no reuse | Extract reusable workflow templates or shared GitLab CI includes |
-| **Manual Gates Everywhere** | Every stage requires a human approval; deployment bottleneck | Automate quality gates with metrics; manual approval only at prod boundary |
+| **Long-Running Pipeline** | Single pipeline takes >30 min | Split into fast (lint/unit) and slow (E2E) tiers |
+| **Snowflake Configuration** | Each service has its own hand-crafted pipeline | Extract reusable workflow templates or shared includes |
+| **Manual Gates Everywhere** | Every stage requires human approval | Automate quality gates; manual approval only at prod boundary |
 | **Mutable Artifacts** | Same artifact tag overwritten on every build | Tag artifacts with commit SHA; treat tags as immutable |
 | **God Job** | One job lints, tests, builds, scans, and deploys | Single responsibility per job; explicit `needs` graph |
 | **No Timeout** | Jobs hang indefinitely on network or test failures | Set `timeout-minutes` on every job |
 | **Secret in Logs** | `echo $SECRET_TOKEN` prints secrets to build log | Never echo secrets; use `::add-mask::` if unavoidable |
 | **Test After Build** | Tests run only after a slow Docker build | Run unit tests before the build; fail fast on code issues |
-| **Pipeline as Documentation** | Complex logic buried in YAML; hard to test locally | Extract logic into scripts; keep YAML as thin orchestration |
+| **Pipeline as Documentation** | Complex logic buried in YAML | Extract logic into scripts; keep YAML as thin orchestration |
 
-**Snowflake config — before and after:**
-
+**Snowflake config — reusable workflow pattern:**
 ```yaml
-# BEFORE — every service has its own test job definition
-test-api:
-  runs-on: ubuntu-latest
-  steps:
-    - run: npm ci && npm test
-
-test-worker:
-  runs-on: ubuntu-latest
-  steps:
-    - run: npm ci && npm test
-
-# AFTER — reusable workflow called by each service
 # .github/workflows/node-test.yml (reusable)
 on:
   workflow_call:
     inputs:
-      working-directory:
-        type: string
-        required: true
+      working-directory: { type: string, required: true }
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -617,12 +460,10 @@ jobs:
 jobs:
   test-api:
     uses: ./.github/workflows/node-test.yml
-    with:
-      working-directory: apps/api
+    with: { working-directory: apps/api }
   test-worker:
     uses: ./.github/workflows/node-test.yml
-    with:
-      working-directory: apps/worker
+    with: { working-directory: apps/worker }
 ```
 
 ---
@@ -632,7 +473,7 @@ jobs:
 Deployments fail. The difference between a 5-minute incident and a 2-hour outage is whether rollback is automated and rehearsed.
 
 **Red Flags:**
-- Rollback procedure is a runbook that requires manual steps under pressure
+- Rollback procedure is a runbook requiring manual steps under pressure
 - Database migrations applied before new code deployed — migration not backward-compatible
 - Old container images deleted immediately after deploy — cannot roll back quickly
 - Rollback never tested in staging — procedure fails when needed most
@@ -641,12 +482,8 @@ Deployments fail. The difference between a 5-minute incident and a 2-hour outage
 **Automated rollback on health check failure:**
 ```bash
 #!/usr/bin/env bash
-# scripts/deploy-with-rollback.sh
 set -euo pipefail
-
 PREVIOUS_REVISION=$(kubectl rollout history deployment/my-app | tail -2 | head -1 | awk '{print $1}')
-
-echo "Deploying revision from image: $IMAGE_TAG"
 kubectl set image deployment/my-app app="ghcr.io/org/app:$IMAGE_TAG"
 kubectl rollout status deployment/my-app --timeout=5m || {
   echo "Rollout failed — reverting to revision $PREVIOUS_REVISION"
@@ -654,124 +491,61 @@ kubectl rollout status deployment/my-app --timeout=5m || {
   kubectl rollout status deployment/my-app --timeout=5m
   exit 1
 }
-
-# Post-deploy smoke test
-echo "Running smoke test..."
 sleep 5
 HEALTH=$(curl -s -o /dev/null -w "%{http_code}" https://api.example.com/health)
-if [ "$HEALTH" != "200" ]; then
-  echo "Smoke test failed (HTTP $HEALTH) — reverting"
-  kubectl rollout undo deployment/my-app
-  exit 1
-fi
+[ "$HEALTH" = "200" ] || { kubectl rollout undo deployment/my-app; exit 1; }
 echo "Deploy successful"
 ```
 
 **Backward-compatible migration pattern:**
-```bash
-# RULE: migrations must be backward-compatible with N-1 version of the app.
-# Deploy order: migrate → deploy new app → (optional) cleanup migration
+```sql
+-- RULE: migrations must be backward-compatible with N-1 version of the app.
+-- Deploy order: migrate → deploy new app → (optional) cleanup
 
-# Phase 1: Add nullable column (safe — old code ignores it)
+-- Phase 1: Add nullable column (safe — old code ignores it)
 ALTER TABLE users ADD COLUMN display_name VARCHAR(255);
-
-# Deploy new app code (reads display_name, falls back to name if null)
-
-# Phase 2: Backfill (run as a job, not during deploy)
+-- Deploy new app (reads display_name, falls back to name if null)
+-- Phase 2: Backfill (run as a job, not during deploy)
 UPDATE users SET display_name = name WHERE display_name IS NULL;
-
-# Phase 3: Add NOT NULL constraint (only after all rows backfilled)
+-- Phase 3: Add NOT NULL constraint (only after all rows backfilled)
 ALTER TABLE users ALTER COLUMN display_name SET NOT NULL;
 ```
 
-**Disaster recovery — pipeline for DB restore:**
+**DR restore pipeline (essential fields):**
 ```yaml
-# .github/workflows/dr-restore.yml
-name: DR - Restore Database
-on:
-  workflow_dispatch:
-    inputs:
-      snapshot_id:
-        description: RDS snapshot identifier
-        required: true
-      environment:
-        description: Target environment
-        type: choice
-        options: [staging, production]
-
+# .github/workflows/dr-restore.yml — triggered via workflow_dispatch
+# inputs: snapshot_id (required), environment (choice: staging|production)
 jobs:
   restore:
     environment: ${{ inputs.environment }}  # requires manual approval
     runs-on: ubuntu-latest
     steps:
       - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_DR_ROLE_ARN }}
-          aws-region: us-east-1
-      - name: Restore RDS snapshot
-        run: |
+        with: { role-to-assume: ${{ secrets.AWS_DR_ROLE_ARN }}, aws-region: us-east-1 }
+      - run: |
           aws rds restore-db-instance-from-db-snapshot \
             --db-instance-identifier "restored-${{ inputs.environment }}-$(date +%s)" \
             --db-snapshot-identifier "${{ inputs.snapshot_id }}"
-      - name: Verify restore
-        run: ./scripts/verify-db-restore.sh
-```
-
-**Regular DR drill (scheduled):**
-```yaml
-# .github/workflows/dr-drill.yml
-on:
-  schedule:
-    - cron: "0 2 * * 0"   # weekly, Sunday 2 AM UTC
-
-jobs:
-  restore-drill:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Restore latest snapshot to staging
-        run: ./scripts/dr-drill.sh staging
-      - name: Run acceptance tests against restored DB
-        run: npm run test:smoke -- --env=staging-restored
-      - name: Report drill results
-        if: always()
-        run: ./scripts/report-dr-results.sh
+      - run: ./scripts/verify-db-restore.sh
+# Weekly DR drill: schedule cron "0 2 * * 0" → restore latest snapshot → smoke tests → report
 ```
 
 ---
 
-## Pipeline Anti-Pattern Red Flags Summary
+## Pipeline Health Check
 
 ```bash
-# Quick pipeline health check (run from repo root)
 #!/usr/bin/env bash
 set -euo pipefail
-
 FAIL=0
-
-check() {
-  local msg="$1"; shift
-  if "$@" > /dev/null 2>&1; then
-    echo "PASS: $msg"
-  else
-    echo "FAIL: $msg"
-    FAIL=1
-  fi
-}
-
-# Check for pinned SHA on third-party actions
-check "Actions pinned to SHA" \
-  grep -rqE "uses: [a-z-]+/[a-z-]+@[0-9a-f]{40}" .github/workflows/
-
-# Check for timeout-minutes on all jobs
-check "All jobs have timeout" \
-  ! grep -rL "timeout-minutes" .github/workflows/*.yml
-
-# Check for explicit permissions block
-check "Permissions explicitly set" \
-  grep -rq "^permissions:" .github/workflows/
-
+check() { local msg="$1"; shift; "$@" > /dev/null 2>&1 && echo "PASS: $msg" || { echo "FAIL: $msg"; FAIL=1; }; }
+check "Actions pinned to SHA" grep -rqE "uses: [a-z-]+/[a-z-]+@[0-9a-f]{40}" .github/workflows/
+check "All jobs have timeout" ! grep -rL "timeout-minutes" .github/workflows/*.yml
+check "Permissions explicitly set" grep -rq "^permissions:" .github/workflows/
 exit $FAIL
 ```
+
+**Red Flags Summary:** See anti-pattern table above.
 
 ---
 

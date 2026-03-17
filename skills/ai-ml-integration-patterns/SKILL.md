@@ -46,7 +46,6 @@ RAG grounds LLM responses in real data by retrieving relevant documents at query
 - Embedding model mismatch between indexing and query time
 - Context window assembly ignores token count — exceeds model limit at runtime
 
-**TypeScript:**
 ```typescript
 import { OpenAI } from "openai";
 import { encode } from "gpt-tokenizer";
@@ -101,52 +100,6 @@ async function ragQuery(query: string, chunks: Chunk[]): Promise<string> {
 }
 ```
 
-**Python:**
-```python
-import tiktoken
-from openai import OpenAI
-from dataclasses import dataclass
-
-client = OpenAI()
-enc = tiktoken.encoding_for_model("gpt-4o")
-
-@dataclass
-class Chunk:
-    id: str
-    text: str
-    score: float
-    source: str
-
-def build_rag_context(
-    chunks: list[Chunk],
-    max_tokens: int = 3000,
-    min_score: float = 0.75
-) -> tuple[str, list[str]]:
-    relevant = [c for c in chunks if c.score >= min_score]
-    packed, sources, token_count = [], [], 0
-    for chunk in relevant:
-        tokens = len(enc.encode(chunk.text))
-        if token_count + tokens > max_tokens:
-            break
-        packed.append(f"[Source: {chunk.source}]\n{chunk.text}")
-        sources.append(chunk.source)
-        token_count += tokens
-    return "\n\n---\n\n".join(packed), list(dict.fromkeys(sources))
-
-def rag_query(query: str, chunks: list[Chunk]) -> str:
-    context, sources = build_rag_context(chunks)
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": "Answer using ONLY the provided context."},
-            {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {query}"}
-        ],
-        temperature=0,
-    )
-    answer = response.choices[0].message.content or ""
-    return f"{answer}\n\nSources: {', '.join(sources)}"
-```
-
 Cross-reference: `data-pipeline-patterns` — chunking and embedding pipeline stages.
 
 ---
@@ -168,7 +121,6 @@ Reliable LLM outputs require structured, versioned prompts — not ad-hoc string
 - No few-shot examples for complex classification or extraction tasks
 - Chain-of-thought reasoning mixed with final output — parse errors at runtime
 
-**TypeScript:**
 ```typescript
 // BEFORE — ad-hoc, scattered, unversioned
 const prompt = `You are a helpful assistant. User said: ${userMessage}`;
@@ -208,7 +160,7 @@ function buildMessages(template: PromptTemplate, userInput: string) {
 }
 ```
 
-**Python — chain-of-thought pattern:**
+**Python — chain-of-thought (XML tag parsing idiom differs from TS):**
 ```python
 COT_SYSTEM_PROMPT = """You are a math reasoning assistant.
 Think through each problem step by step, then provide your final answer.
@@ -244,7 +196,6 @@ LLMs do not guarantee valid JSON or correct field types. Always validate structu
 - No retry on parse failure — single bad response causes permanent failure
 - Schema defined only in the prompt, not enforced in code
 
-**TypeScript (Zod):**
 ```typescript
 import { z } from "zod";
 import { OpenAI } from "openai";
@@ -259,71 +210,21 @@ const ProductExtractionSchema = z.object({
   tags: z.array(z.string()).default([]),
 });
 
-type ProductExtraction = z.infer<typeof ProductExtractionSchema>;
-
-async function extractProduct(text: string): Promise<ProductExtraction> {
-  const MAX_ATTEMPTS = 3;
-
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+async function extractProduct(text: string) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
-        {
-          role: "system",
-          content: `Extract product information as JSON with fields:
-            name (string), price (number), currency ("USD"|"EUR"|"GBP"),
-            inStock (boolean), tags (string array).
-            Return ONLY valid JSON, no markdown.`
-        },
-        { role: "user", content: text }
+        { role: "system", content: 'Extract product info as JSON: name, price, currency ("USD"|"EUR"|"GBP"), inStock, tags. Return ONLY valid JSON.' },
+        { role: "user", content: text },
       ],
       response_format: { type: "json_object" },
     });
-
-    const raw = response.choices[0].message.content ?? "{}";
-    const parsed = ProductExtractionSchema.safeParse(JSON.parse(raw));
-
+    const parsed = ProductExtractionSchema.safeParse(JSON.parse(response.choices[0].message.content ?? "{}"));
     if (parsed.success) return parsed.data;
-    if (attempt === MAX_ATTEMPTS) {
-      throw new Error(`Schema validation failed after ${MAX_ATTEMPTS} attempts: ${parsed.error.message}`);
-    }
+    if (attempt === 3) throw new Error(`Schema validation failed: ${parsed.error.message}`);
   }
-  throw new Error("unreachable");
 }
-```
-
-**Python (Pydantic):**
-```python
-from pydantic import BaseModel, Field, ValidationError
-from openai import OpenAI
-import json
-
-client = OpenAI()
-
-class ProductExtraction(BaseModel):
-    name: str = Field(min_length=1)
-    price: float = Field(gt=0)
-    currency: str = Field(pattern="^(USD|EUR|GBP)$")
-    in_stock: bool
-    tags: list[str] = []
-
-def extract_product(text: str, max_attempts: int = 3) -> ProductExtraction:
-    for attempt in range(1, max_attempts + 1):
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": "Extract product info as JSON: name, price, currency, in_stock, tags."},
-                {"role": "user", "content": text},
-            ],
-        )
-        raw = response.choices[0].message.content or "{}"
-        try:
-            return ProductExtraction.model_validate(json.loads(raw))
-        except (ValidationError, json.JSONDecodeError) as e:
-            if attempt == max_attempts:
-                raise ValueError(f"Schema validation failed after {max_attempts} attempts: {e}") from e
-    raise RuntimeError("unreachable")
 ```
 
 Cross-reference: `data-validation-schema-patterns` — Zod and Pydantic schema patterns in depth.
@@ -346,73 +247,54 @@ LLMs can select and invoke tools (functions) to act on the world. The applicatio
 - Tool execution errors not fed back to the LLM — model retries blindly
 - Destructive tools (delete, send email) with no confirmation step
 
-**TypeScript:**
 ```typescript
 import { OpenAI } from "openai";
 import { z } from "zod";
 
 const openai = new OpenAI();
 
-// Tool argument schemas for validation
 const GetWeatherArgs = z.object({ location: z.string(), unit: z.enum(["celsius", "fahrenheit"]) });
-const SearchArgs = z.object({ query: z.string().min(1), maxResults: z.number().int().min(1).max(20).default(5) });
 
-const TOOL_DEFINITIONS = [
-  {
-    type: "function" as const,
-    function: {
-      name: "get_weather",
-      description: "Get current weather for a location",
-      parameters: {
-        type: "object",
-        properties: {
-          location: { type: "string", description: "City and country" },
-          unit: { type: "string", enum: ["celsius", "fahrenheit"] },
-        },
-        required: ["location", "unit"],
+const TOOL_DEFINITIONS = [{
+  type: "function" as const,
+  function: {
+    name: "get_weather",
+    description: "Get current weather for a location",
+    parameters: {
+      type: "object",
+      properties: {
+        location: { type: "string" },
+        unit: { type: "string", enum: ["celsius", "fahrenheit"] },
       },
+      required: ["location", "unit"],
     },
   },
-];
+}];
 
 async function executeTool(name: string, rawArgs: unknown): Promise<string> {
   if (name === "get_weather") {
     const args = GetWeatherArgs.parse(rawArgs);  // validate before execution
-    // actual implementation
     return JSON.stringify({ temperature: 22, condition: "sunny", location: args.location });
   }
   throw new Error(`Unknown tool: ${name}`);
 }
 
 async function runAgentLoop(userMessage: string, maxIterations = 10): Promise<string> {
-  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
-    { role: "user", content: userMessage }
-  ];
+  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [{ role: "user", content: userMessage }];
 
   for (let i = 0; i < maxIterations; i++) {
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages,
-      tools: TOOL_DEFINITIONS,
-    });
-
+    const response = await openai.chat.completions.create({ model: "gpt-4o", messages, tools: TOOL_DEFINITIONS });
     const choice = response.choices[0];
     messages.push(choice.message);
 
-    if (choice.finish_reason !== "tool_calls") {
-      return choice.message.content ?? "";
-    }
+    if (choice.finish_reason !== "tool_calls") return choice.message.content ?? "";
 
-    for (const toolCall of choice.message.tool_calls ?? []) {
+    for (const tc of choice.message.tool_calls ?? []) {
       try {
-        const result = await executeTool(
-          toolCall.function.name,
-          JSON.parse(toolCall.function.arguments)
-        );
-        messages.push({ role: "tool", tool_call_id: toolCall.id, content: result });
+        const result = await executeTool(tc.function.name, JSON.parse(tc.function.arguments));
+        messages.push({ role: "tool", tool_call_id: tc.id, content: result });
       } catch (err) {
-        // Feed error back to LLM so it can recover or stop
-        messages.push({ role: "tool", tool_call_id: toolCall.id, content: `Error: ${(err as Error).message}` });
+        messages.push({ role: "tool", tool_call_id: tc.id, content: `Error: ${(err as Error).message}` });
       }
     }
   }
@@ -432,25 +314,16 @@ LLM APIs fail with rate limits (429), server errors (500/503), and timeouts. Han
 - Single model dependency — no fallback when primary model is degraded
 - Retrying 400 (bad request) — permanent errors wasted on retries
 
-**TypeScript:**
 ```typescript
 import { OpenAI, APIError, RateLimitError, APIConnectionTimeoutError } from "openai";
 
-const PRIMARY_MODEL = "gpt-4o";
-const FALLBACK_MODEL = "gpt-4o-mini";
-
-interface LlmCallOptions {
-  maxAttempts?: number;
-  timeoutMs?: number;
-  useFallback?: boolean;
-}
-
 async function callLlmWithRetry(
   messages: OpenAI.Chat.ChatCompletionMessageParam[],
-  options: LlmCallOptions = {}
+  options: { maxAttempts?: number; timeoutMs?: number; useFallback?: boolean } = {}
 ): Promise<string> {
   const { maxAttempts = 3, timeoutMs = 30_000, useFallback = true } = options;
   const openai = new OpenAI({ timeout: timeoutMs });
+  const PRIMARY_MODEL = "gpt-4o", FALLBACK_MODEL = "gpt-4o-mini";
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const model = attempt === maxAttempts && useFallback ? FALLBACK_MODEL : PRIMARY_MODEL;
@@ -477,48 +350,6 @@ async function callLlmWithRetry(
 }
 ```
 
-**Python:**
-```python
-import time
-import anthropic
-from anthropic import RateLimitError, APITimeoutError, APIStatusError
-
-client = anthropic.Anthropic()
-
-def call_llm_with_retry(
-    messages: list[dict],
-    max_attempts: int = 3,
-    timeout: float = 30.0,
-    fallback_model: str = "claude-haiku-4-5",
-    primary_model: str = "claude-sonnet-4-6",
-) -> str:
-    for attempt in range(1, max_attempts + 1):
-        model = fallback_model if attempt == max_attempts else primary_model
-        try:
-            response = client.messages.create(
-                model=model,
-                max_tokens=2048,
-                messages=messages,
-                timeout=timeout,
-            )
-            return response.content[0].text
-        except RateLimitError as e:
-            if attempt == max_attempts:
-                raise
-            retry_after = float(e.response.headers.get("retry-after", 2 ** attempt))
-            time.sleep(retry_after)
-        except APITimeoutError:
-            if attempt == max_attempts:
-                raise
-            time.sleep(attempt)
-        except APIStatusError as e:
-            if 400 <= e.status_code < 500:
-                raise  # permanent — do not retry
-            if attempt == max_attempts:
-                raise
-            time.sleep(0.5 * 2 ** (attempt - 1))
-```
-
 Cross-reference: `error-handling-patterns` — Retry with Exponential Backoff for generic retry utilities.
 Cross-reference: `api-rate-limiting-throttling` — rate limit detection and backoff strategies.
 
@@ -540,42 +371,20 @@ Exceeding the context window causes runtime errors. Unbounded context assembly s
 - Chunk size set in characters, not tokens — off by 3-4x for non-ASCII content
 - Overlap between chunks ignored — sentence boundaries split mid-thought
 
-**TypeScript:**
 ```typescript
 import { encode, decode } from "gpt-tokenizer";
 
-const MODEL_TOKEN_LIMITS: Record<string, number> = {
-  "gpt-4o": 128_000,
-  "gpt-4o-mini": 128_000,
-  "gpt-4-turbo": 128_000,
+const MODEL_TOKEN_LIMITS: Record<string, number> = { "gpt-4o": 128_000, "gpt-4o-mini": 128_000 };
+const countTokens = (text: string) => encode(text).length;
+const truncateToTokenBudget = (text: string, max: number) => {
+  const t = encode(text); return t.length <= max ? text : decode(t.slice(0, max));
 };
 
-function countTokens(text: string): number {
-  return encode(text).length;
-}
-
-function truncateToTokenBudget(text: string, maxTokens: number): string {
-  const tokens = encode(text);
-  if (tokens.length <= maxTokens) return text;
-  return decode(tokens.slice(0, maxTokens));
-}
-
-interface ChunkOptions {
-  chunkSizeTokens: number;
-  overlapTokens: number;
-}
-
-function chunkDocument(text: string, options: ChunkOptions): string[] {
-  const { chunkSizeTokens, overlapTokens } = options;
+function chunkDocument(text: string, chunkSizeTokens: number, overlapTokens: number): string[] {
   const tokens = encode(text);
   const chunks: string[] = [];
-  let start = 0;
-
-  while (start < tokens.length) {
-    const end = Math.min(start + chunkSizeTokens, tokens.length);
-    chunks.push(decode(tokens.slice(start, end)));
-    start += chunkSizeTokens - overlapTokens;
-    if (start >= tokens.length) break;
+  for (let start = 0; start < tokens.length; start += chunkSizeTokens - overlapTokens) {
+    chunks.push(decode(tokens.slice(start, start + chunkSizeTokens)));
   }
   return chunks;
 }
@@ -586,15 +395,9 @@ function buildPromptWithBudget(
   userMessage: string,
   model = "gpt-4o"
 ): Array<{ role: string; content: string }> {
-  const limit = MODEL_TOKEN_LIMITS[model] ?? 8_000;
-  const reservedForOutput = 2_048;
-  let budget = limit - reservedForOutput;
+  let budget = (MODEL_TOKEN_LIMITS[model] ?? 8_000) - 2_048
+    - countTokens(systemPrompt) - countTokens(userMessage);
 
-  const systemTokens = countTokens(systemPrompt);
-  const userTokens = countTokens(userMessage);
-  budget -= systemTokens + userTokens;
-
-  // Include history from newest to oldest until budget exhausted
   const includedHistory: typeof history = [];
   for (let i = history.length - 1; i >= 0 && budget > 0; i--) {
     const t = countTokens(history[i].content);
@@ -602,12 +405,7 @@ function buildPromptWithBudget(
     includedHistory.unshift(history[i]);
     budget -= t;
   }
-
-  return [
-    { role: "system", content: systemPrompt },
-    ...includedHistory,
-    { role: "user", content: userMessage },
-  ];
+  return [{ role: "system", content: systemPrompt }, ...includedHistory, { role: "user", content: userMessage }];
 }
 ```
 
@@ -630,25 +428,17 @@ LLMs generate plausible-sounding but false information. Mitigation requires arch
 - Guardrails applied only at the prompt level — no post-processing safety layer
 - Citations not verified against actual source content
 
-**TypeScript:**
 ```typescript
+import { z } from "zod";
+
 interface GroundedAnswer {
-  answer: string;
-  citations: Array<{ sourceId: string; excerpt: string }>;
-  confidence: "high" | "medium" | "low";
-  abstained: boolean;
+  answer: string; citations: Array<{ sourceId: string; excerpt: string }>;
+  confidence: "high" | "medium" | "low"; abstained: boolean;
 }
 
-const GROUNDED_SYSTEM_PROMPT = `You are a factual question-answering assistant.
-Rules:
-1. Answer ONLY using information from the provided context.
-2. For each claim, cite the source ID in brackets: [source-1].
-3. If the answer is not in the context, respond with: {"abstained": true, "answer": "I don't have enough information.", "citations": [], "confidence": "low"}
-4. Rate your confidence as "high", "medium", or "low".
-5. Respond ONLY with valid JSON matching this schema:
-   {"answer": string, "citations": [{"sourceId": string, "excerpt": string}], "confidence": "high"|"medium"|"low", "abstained": boolean}`;
-
-import { z } from "zod";
+const GROUNDED_SYSTEM_PROMPT = `You are a factual Q&A assistant. Answer ONLY using the provided context.
+Cite sources as [source-id]. If not in context, set "abstained": true. Rate confidence high/medium/low.
+Respond ONLY with JSON: {"answer":string,"citations":[{"sourceId":string,"excerpt":string}],"confidence":"high"|"medium"|"low","abstained":boolean}`;
 
 const GroundedAnswerSchema = z.object({
   answer: z.string(),
@@ -683,7 +473,7 @@ async function groundedQuery(
 }
 ```
 
-**Python — guardrail post-processing:**
+**Python — output guardrail post-processing (regex pattern matching idiom):**
 ```python
 import re
 from dataclasses import dataclass
@@ -704,19 +494,6 @@ def apply_output_guardrails(text: str) -> GuardrailResult:
         if pattern.search(text):
             return GuardrailResult(safe=False, reason=f"Sensitive pattern detected: {pattern.pattern}")
     return GuardrailResult(safe=True, reason=None)
-
-def safe_generate(prompt: str, client, model: str = "claude-sonnet-4-6") -> str:
-    import anthropic
-    response = client.messages.create(
-        model=model,
-        max_tokens=1024,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    text = response.content[0].text
-    result = apply_output_guardrails(text)
-    if not result.safe:
-        raise ValueError(f"Output blocked by guardrail: {result.reason}")
-    return text
 ```
 
 Cross-reference: `security-patterns-code-review` — input/output sanitization and injection prevention.
@@ -737,7 +514,7 @@ Cross-reference: `security-patterns-code-review` — input/output sanitization a
 | **Ignoring Token Costs** | No token counting or budget — surprise bills at end of month | Count tokens before each request; set max_tokens on all calls |
 | **Trusting LLM for Logic** | Using LLM to make security, financial, or access control decisions | LLM output is advisory only; enforce business rules in deterministic code |
 
-**Prompt Injection — TypeScript fix:**
+**Prompt Injection fix (TS):**
 ```typescript
 // WRONG — user input directly in system prompt
 const systemPrompt = `You are a helpful assistant. User context: ${userProvidedContext}`;
@@ -745,15 +522,13 @@ const systemPrompt = `You are a helpful assistant. User context: ${userProvidedC
 // CORRECT — strict separation of system instructions and user content
 const systemPrompt = `You are a helpful assistant. Answer questions about our product catalog only.
 If asked to do anything outside this scope, politely decline.`;
-
 const messages = [
   { role: "system" as const, content: systemPrompt },
-  // User content is ALWAYS in user role, never interpolated into system
-  { role: "user" as const, content: userMessage },
+  { role: "user" as const, content: userMessage },  // user content never in system role
 ];
 ```
 
-**Unbounded context — Python fix:**
+**Unbounded context fix (Python rolling window):**
 ```python
 # WRONG — history grows forever
 messages = system_messages + all_history + [new_message]

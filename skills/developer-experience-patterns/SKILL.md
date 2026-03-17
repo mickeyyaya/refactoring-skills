@@ -38,19 +38,14 @@ A monorepo collocates multiple packages or services in one repository. The key w
 - No clear dependency graph — circular imports between packages
 - Manually updated lists of "affected" services in scripts
 
-**Nx — affected build and dependency graph:**
+**Nx — affected build commands:**
 ```bash
-# Only build packages affected by changes since main
-npx nx affected --target=build --base=origin/main
-
-# Visualize the full dependency graph
-npx nx graph
-
-# Run all tests in parallel, caching unchanged results
-npx nx run-many --target=test --all --parallel=4
+npx nx affected --target=build --base=origin/main  # only changed packages
+npx nx graph                                        # visualize dependency graph
+npx nx run-many --target=test --all --parallel=4   # parallel test with cache
 ```
 
-**`nx.json` — remote cache configuration:**
+**`nx.json` — remote cache configuration (excerpt):**
 ```json
 {
   "tasksRunnerOptions": {
@@ -58,54 +53,33 @@ npx nx run-many --target=test --all --parallel=4
       "runner": "nx/tasks-runners/default",
       "options": {
         "cacheableOperations": ["build", "test", "lint"],
-        "remoteCache": {
-          "url": "https://nx-cache.internal.example.com"
-        }
+        "remoteCache": { "url": "https://nx-cache.internal.example.com" }
       }
     }
   },
   "targetDefaults": {
-    "build": {
-      "dependsOn": ["^build"],
-      "outputs": ["{projectRoot}/dist"]
-    },
-    "test": {
-      "dependsOn": ["build"]
-    }
+    "build": { "dependsOn": ["^build"], "outputs": ["{projectRoot}/dist"] },
+    "test":  { "dependsOn": ["build"] }
   }
 }
 ```
 
-**Turborepo — `turbo.json` pipeline:**
+**`turbo.json` pipeline (Turborepo alternative):**
 ```json
 {
   "$schema": "https://turbo.build/schema.json",
   "pipeline": {
-    "build": {
-      "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".next/**"]
-    },
-    "test": {
-      "dependsOn": ["build"],
-      "outputs": ["coverage/**"]
-    },
-    "lint": {
-      "outputs": []
-    },
-    "dev": {
-      "cache": false,
-      "persistent": true
-    }
+    "build": { "dependsOn": ["^build"], "outputs": ["dist/**", ".next/**"] },
+    "test":  { "dependsOn": ["build"], "outputs": ["coverage/**"] },
+    "lint":  { "outputs": [] },
+    "dev":   { "cache": false, "persistent": true }
   },
-  "remoteCache": {
-    "signature": true
-  }
+  "remoteCache": { "signature": true }
 }
 ```
 
 **TypeScript — programmatic affected detection:**
 ```typescript
-// tools/affected-services.ts
 import { execSync } from 'child_process';
 
 function getAffectedPackages(base = 'origin/main'): string[] {
@@ -115,10 +89,6 @@ function getAffectedPackages(base = 'origin/main'): string[] {
   );
   return JSON.parse(output) as string[];
 }
-
-const affected = getAffectedPackages();
-console.log('Affected packages:', affected);
-// Deploy only affected services downstream in CI
 ```
 
 Cross-reference: `cicd-pipeline-patterns` — Pipeline optimization and caching strategies.
@@ -148,88 +118,51 @@ A dev container defines the full development environment (runtime, tools, extens
   },
   "customizations": {
     "vscode": {
-      "extensions": [
-        "dbaeumer.vscode-eslint",
-        "esbenp.prettier-vscode",
-        "ms-azuretools.vscode-docker"
-      ],
-      "settings": {
-        "editor.formatOnSave": true,
-        "editor.defaultFormatter": "esbenp.prettier-vscode"
-      }
+      "extensions": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode"],
+      "settings": { "editor.formatOnSave": true }
     }
   },
   "postCreateCommand": "npm ci && npm run db:migrate",
-  "remoteEnv": {
-    "DATABASE_URL": "${localEnv:DATABASE_URL}"
-  }
+  "remoteEnv": { "DATABASE_URL": "${localEnv:DATABASE_URL}" }
 }
 ```
 
-**`docker-compose.dev.yml` — local dev with all dependencies:**
+**`docker-compose.dev.yml` — key sections (full file omits nothing structurally significant):**
 ```yaml
-version: "3.9"
 services:
   api:
-    build:
-      context: .
-      dockerfile: Dockerfile.dev
-    volumes:
-      - .:/workspace:cached
-      - node_modules:/workspace/node_modules
-    ports:
-      - "3000:3000"
+    build: { context: ., dockerfile: Dockerfile.dev }
+    volumes: [".:/workspace:cached", "node_modules:/workspace/node_modules"]
+    ports: ["3000:3000"]
     environment:
-      NODE_ENV: development
       DATABASE_URL: postgres://dev:dev@db:5432/appdb
       REDIS_URL: redis://cache:6379
     depends_on:
-      db:
-        condition: service_healthy
-      cache:
-        condition: service_started
+      db: { condition: service_healthy }
 
   db:
     image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: dev
-      POSTGRES_PASSWORD: dev
-      POSTGRES_DB: appdb
-    ports:
-      - "5432:5432"
+    environment: { POSTGRES_USER: dev, POSTGRES_PASSWORD: dev, POSTGRES_DB: appdb }
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U dev"]
       interval: 5s
-      timeout: 5s
       retries: 5
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
 
   cache:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
 
-volumes:
-  node_modules:
-  postgres_data:
+volumes: { node_modules: {}, postgres_data: {} }
 ```
 
 **`Dockerfile.dev` — dev-optimized image with hot reload:**
 ```dockerfile
 FROM node:20-alpine AS base
 WORKDIR /workspace
-
-# Install dependencies in a separate layer for cache efficiency
 COPY package*.json ./
 RUN npm ci
-
-# Copy source — overridden by the volume mount in dev
 COPY . .
-
 EXPOSE 3000
-# Use nodemon for hot reload in development
-CMD ["npm", "run", "dev"]
+CMD ["npm", "run", "dev"]  # nodemon/tsx watch for hot reload
 ```
 
 Cross-reference: `container-kubernetes-patterns` — Production container patterns and health check standards.
@@ -248,94 +181,56 @@ A golden path is an opinionated, supported route for building a service — scaf
 
 **Service template scaffold (TypeScript CLI):**
 ```typescript
-// tools/scaffold-service.ts
 import { execSync } from 'child_process';
 import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 
-interface ServiceOptions {
-  readonly name: string;
-  readonly type: 'api' | 'worker' | 'cronjob';
-  readonly team: string;
-}
+interface ServiceOptions { name: string; type: 'api' | 'worker' | 'cronjob'; team: string; }
 
 function scaffoldService(opts: ServiceOptions): void {
   const serviceDir = join('services', opts.name);
   mkdirSync(serviceDir, { recursive: true });
-
-  // Copy golden-path template
   execSync(`cp -r templates/${opts.type}/. ${serviceDir}/`);
-
-  // Inject service metadata
-  const manifest = {
-    name: opts.name,
-    type: opts.type,
-    team: opts.team,
-    createdAt: new Date().toISOString(),
-  };
-  writeFileSync(
-    join(serviceDir, 'service.json'),
-    JSON.stringify(manifest, null, 2)
-  );
-
-  console.log(`Scaffolded ${opts.type} service: ${serviceDir}`);
-  console.log('Next steps: cd', serviceDir, '&& npm install && npm run dev');
+  writeFileSync(join(serviceDir, 'service.json'),
+    JSON.stringify({ ...opts, createdAt: new Date().toISOString() }, null, 2));
 }
 ```
 
 **Golden path CI template (`templates/api/.github/workflows/ci.yml`):**
 ```yaml
 name: CI
-
 on:
-  push:
-    branches: [main]
+  push: { branches: [main] }
   pull_request:
-
 jobs:
   build-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
       - run: npm ci
       - run: npm run lint
       - run: npm run type-check
       - run: npm test -- --coverage
       - run: npm run build
-
-      - name: Upload coverage
-        uses: codecov/codecov-action@v4
+      - uses: codecov/codecov-action@v4
 ```
 
-**IDP service registration YAML:**
+**IDP service registration YAML (Backstage / Port compatible):**
 ```yaml
-# catalog-info.yaml — Backstage / Port compatible
 apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: payment-service
-  description: Handles payment processing and refunds
   annotations:
     github.com/project-slug: acme/payment-service
-    backstage.io/techdocs-ref: dir:.
-  tags:
-    - payments
-    - critical
 spec:
   type: service
   lifecycle: production
   owner: team-payments
   system: checkout
-  dependsOn:
-    - component:order-service
-    - resource:payments-db
+  dependsOn: [component:order-service, resource:payments-db]
 ```
 
 Cross-reference: `cicd-pipeline-patterns` — Reusable workflow patterns and pipeline templates.
@@ -344,7 +239,7 @@ Cross-reference: `cicd-pipeline-patterns` — Reusable workflow patterns and pip
 
 ### 4. Local-Prod Parity (Seed Scripts, Test Data Factories, Env Management)
 
-Local-prod parity means the local development environment mirrors production data shapes, environment variables, and infrastructure configuration. Seed scripts and test-data factories eliminate the "it only fails in CI" failure class.
+Local-prod parity means the local development environment mirrors production data shapes, environment variables, and infrastructure configuration.
 
 **Red Flags:**
 - Production uses PostgreSQL; local uses SQLite — schema differences hide bugs
@@ -354,98 +249,45 @@ Local-prod parity means the local development environment mirrors production dat
 
 **TypeScript — test data factory with builder pattern:**
 ```typescript
-// tests/factories/user.factory.ts
 import { faker } from '@faker-js/faker';
 
-interface User {
-  readonly id: string;
-  readonly email: string;
-  readonly name: string;
-  readonly role: 'admin' | 'member';
-  readonly createdAt: Date;
-}
+interface User { id: string; email: string; name: string; role: 'admin' | 'member'; createdAt: Date; }
 
-function buildUser(overrides: Partial<User> = {}): User {
-  return {
-    id: faker.string.uuid(),
-    email: faker.internet.email(),
-    name: faker.person.fullName(),
-    role: 'member',
-    createdAt: new Date(),
-    ...overrides,
-  };
-}
-
-function buildAdminUser(overrides: Partial<User> = {}): User {
-  return buildUser({ role: 'admin', ...overrides });
-}
-
-export { buildUser, buildAdminUser };
-
-// Usage in tests:
-// const user = buildUser({ email: 'specific@example.com' });
-// const admin = buildAdminUser();
+// Spread overrides last — immutable, no mutation of defaults
+const buildUser = (overrides: Partial<User> = {}): User => ({
+  id: faker.string.uuid(), email: faker.internet.email(),
+  name: faker.person.fullName(), role: 'member', createdAt: new Date(),
+  ...overrides,
+});
+const buildAdminUser = (overrides: Partial<User> = {}) => buildUser({ role: 'admin', ...overrides });
 ```
 
 **Seed script with idempotent upsert:**
 ```typescript
-// scripts/seed.ts
-import { db } from '../src/db';
-
 async function seed(): Promise<void> {
-  console.log('Seeding database...');
-
   // Idempotent: upsert avoids duplicate-key errors on re-runs
   await db.user.upsert({
     where: { email: 'admin@example.com' },
     update: {},
-    create: {
-      email: 'admin@example.com',
-      name: 'Admin User',
-      role: 'admin',
-    },
+    create: { email: 'admin@example.com', name: 'Admin User', role: 'admin' },
   });
-
   await db.product.createMany({
-    data: Array.from({ length: 20 }, (_, i) => ({
-      sku: `DEMO-${String(i + 1).padStart(3, '0')}`,
-      name: `Demo Product ${i + 1}`,
-      priceInCents: (i + 1) * 999,
-      stock: 100,
-    })),
+    data: Array.from({ length: 20 }, (_, i) => ({ sku: `DEMO-${String(i+1).padStart(3,'0')}`, name: `Demo Product ${i+1}`, priceInCents: (i+1)*999, stock: 100 })),
     skipDuplicates: true,
   });
-
-  console.log('Seed complete');
 }
-
-seed()
-  .catch((err) => { console.error('Seed failed:', err); process.exit(1); })
-  .finally(() => db.$disconnect());
+seed().catch(err => { console.error('Seed failed:', err); process.exit(1); }).finally(() => db.$disconnect());
 ```
 
 **`.env.example` — comprehensive and documented:**
 ```bash
-# Application
 NODE_ENV=development
 PORT=3000
-LOG_LEVEL=debug
-
-# Database (required)
-DATABASE_URL=postgres://dev:dev@localhost:5432/appdb
-
-# Cache (required)
-REDIS_URL=redis://localhost:6379
-
-# Auth (required — generate with: openssl rand -base64 32)
-JWT_SECRET=change-me-in-production
-
-# External services (optional — feature flags disabled when absent)
-STRIPE_SECRET_KEY=sk_test_...
-SENDGRID_API_KEY=SG....
-
-# Observability (optional)
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+DATABASE_URL=postgres://dev:dev@localhost:5432/appdb   # required
+REDIS_URL=redis://localhost:6379                        # required
+JWT_SECRET=change-me-in-production                      # generate: openssl rand -base64 32
+STRIPE_SECRET_KEY=sk_test_...                           # optional — feature disabled when absent
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318       # optional
 ```
 
 Cross-reference: `testing-patterns` — Test isolation and database reset strategies.
@@ -478,19 +320,14 @@ Fast feedback loops surface errors within seconds. The goal: a code change produ
 
 **Vitest configuration — fast incremental test runs:**
 ```typescript
-// vitest.config.ts
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    // Run only tests related to changed files
-    changed: process.env.CI ? false : true,
-    // Parallelise across CPU cores
+    changed: process.env.CI ? false : true,  // only changed files in dev
     pool: 'threads',
     poolOptions: { threads: { maxThreads: 4 } },
-    // Show results inline without re-printing unchanged passes
     reporter: ['verbose'],
-    // Watch mode ignores generated files
     watchExclude: ['**/node_modules/**', '**/dist/**', '**/coverage/**'],
     coverage: {
       provider: 'v8',
@@ -512,18 +349,14 @@ export default defineConfig({
 }
 ```
 
-**Incremental TypeScript build for CI:**
+**Incremental TypeScript build cache in CI:**
 ```yaml
-# .github/workflows/type-check.yml
-- name: Restore TypeScript build cache
-  uses: actions/cache@v4
+- uses: actions/cache@v4
   with:
     path: .tsbuildinfo
     key: tsbuildinfo-${{ hashFiles('tsconfig.json', 'src/**/*.ts') }}
     restore-keys: tsbuildinfo-
-
-- name: Type check (incremental)
-  run: npx tsc --noEmit --incremental
+- run: npx tsc --noEmit --incremental
 ```
 
 Cross-reference: `cicd-pipeline-patterns` — Caching layers and parallelism for CI speed.
@@ -542,86 +375,52 @@ An API is a developer interface. DX-first design means errors are actionable, SD
 
 **TypeScript — descriptive error response shape:**
 ```typescript
-// Structured error with actionable detail
+// Structured error: machine-readable code, human message, field details, requestId, docsUrl
 interface ApiError {
-  readonly code: string;        // machine-readable, e.g. "VALIDATION_ERROR"
-  readonly message: string;     // human-readable summary
-  readonly details?: ReadonlyArray<{
-    readonly field: string;
-    readonly message: string;
-    readonly received?: unknown;
-  }>;
-  readonly requestId: string;   // correlates with server logs
-  readonly docsUrl?: string;    // link to relevant docs section
+  code: string; message: string;
+  details?: Array<{ field: string; message: string; received?: unknown }>;
+  requestId: string; docsUrl?: string;
 }
 
-// Express error handler that formats errors consistently
-function errorMiddleware(
-  err: unknown,
-  req: Request,
-  res: Response,
-  _next: NextFunction
-): void {
+function errorMiddleware(err: unknown, req: Request, res: Response, _next: NextFunction): void {
   const requestId = req.headers['x-request-id'] as string ?? crypto.randomUUID();
 
   if (err instanceof ValidationError) {
     res.status(422).json({
-      code: 'VALIDATION_ERROR',
-      message: 'Request validation failed',
-      details: err.issues.map((issue) => ({
-        field: issue.path.join('.'),
-        message: issue.message,
-        received: issue.received,
-      })),
-      requestId,
-      docsUrl: 'https://docs.example.com/errors#validation',
+      code: 'VALIDATION_ERROR', message: 'Request validation failed',
+      details: err.issues.map(i => ({ field: i.path.join('.'), message: i.message, received: i.received })),
+      requestId, docsUrl: 'https://docs.example.com/errors#validation',
     } satisfies ApiError);
     return;
   }
-
-  res.status(500).json({
-    code: 'INTERNAL_ERROR',
-    message: 'An unexpected error occurred',
-    requestId,
-    docsUrl: 'https://docs.example.com/errors#internal',
-  } satisfies ApiError);
+  res.status(500).json({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred', requestId } satisfies ApiError);
 }
 ```
 
 **Ergonomic SDK — options object over positional arguments:**
 ```typescript
-// BEFORE — seven positional arguments, caller must memorize order
-async function createOrder(
-  userId: string, items: Item[], currency: string,
-  shippingAddressId: string, couponCode: string | undefined,
-  idempotencyKey: string, notify: boolean
-): Promise<Order> { /* ... */ }
+// BEFORE — seven positional args, caller must memorize order
+async function createOrder(userId, items, currency, shippingAddressId, couponCode, idempotencyKey, notify)
 
 // AFTER — single options object with sensible defaults
 interface CreateOrderOptions {
   readonly userId: string;
   readonly items: ReadonlyArray<Item>;
-  readonly currency?: string;           // defaults to 'USD'
+  readonly currency?: string;          // defaults to 'USD'
   readonly shippingAddressId: string;
   readonly couponCode?: string;
-  readonly idempotencyKey?: string;     // auto-generated if omitted
-  readonly notify?: boolean;            // defaults to true
+  readonly idempotencyKey?: string;    // auto-generated if omitted
+  readonly notify?: boolean;           // defaults to true
 }
 
 async function createOrder(opts: CreateOrderOptions): Promise<Order> {
-  const options = {
-    currency: 'USD',
-    idempotencyKey: crypto.randomUUID(),
-    notify: true,
-    ...opts,
-  };
+  const options = { currency: 'USD', idempotencyKey: crypto.randomUUID(), notify: true, ...opts };
   // implementation
 }
 ```
 
 **OpenAPI auto-generation from Zod schemas:**
 ```typescript
-// src/routes/orders.ts — schema drives both validation and docs
 import { z } from 'zod';
 import { generateSchema } from '@anatine/zod-openapi';
 
@@ -630,12 +429,12 @@ const CreateOrderSchema = z.object({
   items: z.array(z.object({
     sku: z.string().min(1),
     quantity: z.number().int().positive().max(999),
-  })).min(1).describe('Line items — at least one required'),
+  })).min(1),
   currency: z.enum(['USD', 'EUR', 'GBP']).default('USD'),
 });
 
-// Register with openapi-backend or similar — docs are always in sync
 export const createOrderOpenApiSchema = generateSchema(CreateOrderSchema);
+// Register with openapi-backend — docs are always in sync with validation
 ```
 
 Cross-reference: `api-rate-limiting-throttling` — Rate limit headers and error codes for 429 responses.
@@ -644,7 +443,7 @@ Cross-reference: `api-rate-limiting-throttling` — Rate limit headers and error
 
 ### 7. Developer Onboarding (Setup Scripts, Contributing Guides, ADRs)
 
-Effective onboarding minimises time-to-first-PR. Setup scripts automate the mechanical steps; contributing guides document conventions; Architectural Decision Records (ADRs) preserve why decisions were made.
+Effective onboarding minimises time-to-first-PR. Setup scripts automate mechanical steps; contributing guides document conventions; ADRs preserve why decisions were made.
 
 **Red Flags:**
 - Setup instructions require 20 manual steps, some undocumented
@@ -652,53 +451,25 @@ Effective onboarding minimises time-to-first-PR. Setup scripts automate the mech
 - New engineers discover conventions by reading existing code or asking colleagues
 - No record of why the current technology choices were made
 
-**Automated setup script (`scripts/setup.sh`):**
+**Automated setup script (`scripts/setup.sh`) — key structure:**
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "Setting up development environment..."
-
-# Validate required tools
+# 1. Validate required tools and versions
 for tool in node npm docker; do
-  if ! command -v "$tool" &>/dev/null; then
-    echo "ERROR: $tool is required but not installed." >&2
-    exit 1
-  fi
+  command -v "$tool" &>/dev/null || { echo "ERROR: $tool required" >&2; exit 1; }
 done
-
-NODE_VERSION=$(node --version | cut -d. -f1 | tr -d 'v')
-if [ "$NODE_VERSION" -lt 20 ]; then
-  echo "ERROR: Node 20+ required (found $(node --version))" >&2
-  exit 1
-fi
-
-# Install dependencies
-echo "Installing dependencies..."
+[ "$(node --version | cut -d. -f1 | tr -d 'v')" -ge 20 ] || { echo "ERROR: Node 20+ required" >&2; exit 1; }
+# 2. Install dependencies and copy env
 npm ci
-
-# Copy env file if not present
-if [ ! -f .env ]; then
-  cp .env.example .env
-  echo "Created .env from .env.example — review and update secrets"
-fi
-
-# Start dependencies
-echo "Starting Docker services..."
+[ -f .env ] || cp .env.example .env
+# 3. Start services, wait for health, migrate and seed
 docker compose up -d db cache
+until docker compose exec -T db pg_isready -U dev &>/dev/null; do sleep 1; done
+npm run db:migrate && npm run db:seed
 
-# Wait for DB
-echo "Waiting for database..."
-until docker compose exec -T db pg_isready -U dev &>/dev/null; do
-  sleep 1
-done
-
-# Run migrations and seed
-npm run db:migrate
-npm run db:seed
-
-echo ""
-echo "Setup complete. Run 'npm run dev' to start the application."
+echo "Setup complete. Run 'npm run dev' to start."
 ```
 
 **ADR template (`docs/adr/000-template.md`):**
@@ -710,41 +481,29 @@ echo "Setup complete. Run 'npm run dev' to start the application."
 **Deciders:** <names or teams>
 
 ## Context
-
 What is the issue motivating this decision? What constraints or forces are in play?
 
 ## Decision
-
 What was decided?
 
 ## Consequences
-
 **Positive:** What becomes easier or possible?
 **Negative:** What trade-offs or new problems does this introduce?
-**Neutral:** What changes without a clear value judgement?
 
 ## Alternatives Considered
-
 | Option | Reason Rejected |
 |--------|----------------|
-| ...    | ...            |
 ```
 
-**CONTRIBUTING.md structure checklist:**
-```markdown
-## CONTRIBUTING.md Required Sections
-
-- [ ] Prerequisites (exact versions)
-- [ ] Setup steps (link to setup.sh)
-- [ ] Running tests (`npm test`, `npm run test:watch`)
-- [ ] Branch naming (`feat/`, `fix/`, `chore/`)
-- [ ] Commit message format (conventional commits)
-- [ ] PR checklist (tests, lint, type-check)
-- [ ] Code review expectations (SLA, required approvals)
-- [ ] How to add a new service / feature area
-- [ ] Architecture overview link
-- [ ] Contact / escalation path
-```
+**CONTRIBUTING.md required sections:**
+- Prerequisites (exact versions)
+- Setup steps (link to setup.sh)
+- Running tests (`npm test`, `npm run test:watch`)
+- Branch naming (`feat/`, `fix/`, `chore/`)
+- Commit message format (conventional commits)
+- PR checklist (tests, lint, type-check)
+- Code review expectations (SLA, required approvals)
+- Architecture overview link / contact path
 
 Cross-reference: `code-documentation-patterns` — JSDoc standards and inline documentation conventions.
 
@@ -763,9 +522,8 @@ Cross-reference: `code-documentation-patterns` — JSDoc standards and inline do
 | **Monolith CI on Monorepo** | All tests run on every commit regardless of what changed | Affected build detection; per-package CI pipelines |
 | **Magic Environment Variables** | Required env vars discovered at runtime, not documented | `.env.example` with comments; startup validation |
 
-**Magic environment variables — fix pattern:**
+**Magic environment variables — startup validation fix:**
 ```typescript
-// src/config.ts — validate all required env vars at startup
 import { z } from 'zod';
 
 const EnvSchema = z.object({
@@ -781,9 +539,7 @@ const EnvSchema = z.object({
 const parseResult = EnvSchema.safeParse(process.env);
 if (!parseResult.success) {
   console.error('Invalid environment configuration:');
-  parseResult.error.issues.forEach((issue) => {
-    console.error(`  ${issue.path.join('.')}: ${issue.message}`);
-  });
+  parseResult.error.issues.forEach(issue => console.error(`  ${issue.path.join('.')}: ${issue.message}`));
   process.exit(1);
 }
 

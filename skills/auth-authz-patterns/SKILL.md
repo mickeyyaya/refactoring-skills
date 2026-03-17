@@ -41,50 +41,36 @@ Authentication (who you are) and authorization (what you can do) failures are am
 - `redirect_uri` not validated strictly on the authorization server
 - Access tokens passed in URL query params — appear in server logs
 
-**TypeScript (PKCE generation):**
+**TypeScript (PKCE generation + token exchange):**
 ```typescript
 import crypto from 'node:crypto';
 
-function generatePKCE(): { verifier: string; challenge: string } {
+function generatePKCE() {
   const verifier = crypto.randomBytes(32).toString('base64url');
-  const challenge = crypto
-    .createHash('sha256')
-    .update(verifier)
-    .digest('base64url');
+  const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
   return { verifier, challenge };
 }
 
-// Build authorization URL
-function buildAuthUrl(clientId: string, redirectUri: string): { url: string; verifier: string } {
+function buildAuthUrl(clientId: string, redirectUri: string) {
   const { verifier, challenge } = generatePKCE();
   const state = crypto.randomBytes(16).toString('hex');
-  // Store state + verifier in session (NOT localStorage)
-  sessionStorage.setItem('oauth_state', state);
+  sessionStorage.setItem('oauth_state', state);      // NOT localStorage
   sessionStorage.setItem('pkce_verifier', verifier);
-
   const params = new URLSearchParams({
-    response_type: 'code',
-    client_id: clientId,
-    redirect_uri: redirectUri,
-    scope: 'openid profile email',
-    state,
-    code_challenge: challenge,
-    code_challenge_method: 'S256',
+    response_type: 'code', client_id: clientId, redirect_uri: redirectUri,
+    scope: 'openid profile email', state,
+    code_challenge: challenge, code_challenge_method: 'S256',
   });
   return { url: `https://auth.example.com/authorize?${params}`, verifier };
 }
 
-// Token exchange at callback
 async function exchangeCode(code: string, verifier: string, redirectUri: string): Promise<Tokens> {
   const resp = await fetch('https://auth.example.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
-      grant_type: 'authorization_code',
-      code,
-      redirect_uri: redirectUri,
-      code_verifier: verifier,
-      client_id: process.env.CLIENT_ID!,
+      grant_type: 'authorization_code', code, redirect_uri: redirectUri,
+      code_verifier: verifier, client_id: process.env.CLIENT_ID!,
     }),
   });
   if (!resp.ok) throw new Error(`Token exchange failed: ${resp.status}`);
@@ -92,24 +78,14 @@ async function exchangeCode(code: string, verifier: string, redirectUri: string)
 }
 ```
 
-**Go (token validation after exchange):**
+**Go (OIDC token validation after exchange):**
 ```go
-import (
-    "context"
-    "github.com/coreos/go-oidc/v3/oidc"
-    "golang.org/x/oauth2"
-)
-
 func ValidateToken(ctx context.Context, rawIDToken string) (*oidc.IDToken, error) {
     provider, err := oidc.NewProvider(ctx, "https://auth.example.com")
-    if err != nil {
-        return nil, fmt.Errorf("oidc provider: %w", err)
-    }
+    if err != nil { return nil, fmt.Errorf("oidc provider: %w", err) }
     verifier := provider.Verifier(&oidc.Config{ClientID: os.Getenv("CLIENT_ID")})
     token, err := verifier.Verify(ctx, rawIDToken)
-    if err != nil {
-        return nil, fmt.Errorf("id token invalid: %w", err)
-    }
+    if err != nil { return nil, fmt.Errorf("id token invalid: %w", err) }
     return token, nil
 }
 ```
@@ -126,70 +102,32 @@ func ValidateToken(ctx context.Context, rawIDToken string) (*oidc.IDToken, error
 - Scope too broad — requesting `*` or admin-level scopes for a narrow use case
 - Shared client credentials across multiple services — no blast-radius isolation
 
-**Python:**
-```python
-import os
-import time
-import httpx
-from dataclasses import dataclass, field
+**TypeScript (with caching + expiry):**
+```typescript
+let cachedToken = '';
+let tokenExpiresAt = 0;
 
-@dataclass
-class TokenCache:
-    access_token: str = ""
-    expires_at: float = 0.0
-
-_cache = TokenCache()
-
-def get_service_token(scope: str = "reports:read") -> str:
-    """Fetch and cache a client credentials token. Refresh 60s before expiry."""
-    if _cache.access_token and time.time() < _cache.expires_at - 60:
-        return _cache.access_token
-
-    resp = httpx.post(
-        "https://auth.example.com/token",
-        data={
-            "grant_type": "client_credentials",
-            "client_id": os.environ["CLIENT_ID"],       # never hardcode
-            "client_secret": os.environ["CLIENT_SECRET"],
-            "scope": scope,
-        },
-        timeout=10,
-    )
-    resp.raise_for_status()
-    payload = resp.json()
-    _cache.access_token = payload["access_token"]
-    _cache.expires_at = time.time() + payload["expires_in"]
-    return _cache.access_token
-```
-
-**Java (Spring Security OAuth2 client):**
-```java
-@Bean
-public OAuth2AuthorizedClientManager clientManager(
-        ClientRegistrationRepository clientRepo,
-        OAuth2AuthorizedClientRepository authorizedClientRepo) {
-    var manager = new DefaultOAuth2AuthorizedClientManager(clientRepo, authorizedClientRepo);
-    manager.setAuthorizedClientProvider(
-        OAuth2AuthorizedClientProviderBuilder.builder().clientCredentials().build());
-    return manager;
-}
-
-// Usage in service — Spring handles caching and refresh automatically
-@Service
-public class ReportClient {
-    private final WebClient webClient;
-
-    public ReportClient(WebClient.Builder builder, OAuth2AuthorizedClientManager manager) {
-        var filter = new ServletOAuth2AuthorizedClientExchangeFilterFunction(manager);
-        filter.setDefaultClientRegistrationId("report-service");
-        this.webClient = builder.filter(filter).baseUrl("https://reports.internal").build();
-    }
-
-    public Mono<Report> fetchReport(String id) {
-        return webClient.get().uri("/reports/{id}", id).retrieve().bodyToMono(Report.class);
-    }
+async function getServiceToken(scope = 'reports:read'): Promise<string> {
+  if (cachedToken && Date.now() < tokenExpiresAt - 60_000) return cachedToken;
+  const resp = await fetch('https://auth.example.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: process.env.CLIENT_ID!,      // never hardcode
+      client_secret: process.env.CLIENT_SECRET!,
+      scope,
+    }),
+  });
+  if (!resp.ok) throw new Error(`Token fetch failed: ${resp.status}`);
+  const { access_token, expires_in } = await resp.json();
+  cachedToken = access_token;
+  tokenExpiresAt = Date.now() + expires_in * 1000;
+  return cachedToken;
 }
 ```
+
+Java (Spring Security OAuth2): wire `OAuth2AuthorizedClientManager` with `clientCredentials()` provider + `ServletOAuth2AuthorizedClientExchangeFilterFunction` on `WebClient` — Spring handles caching and refresh automatically. No manual token cache needed.
 
 ---
 
@@ -204,7 +142,7 @@ public class ReportClient {
 - Not checking `iat` and `exp` — expired tokens accepted
 - Trusting user-supplied `sub` without verifying issuer (`iss`)
 
-**Token claims to always validate:**
+**Claims to always validate:**
 ```
 iss  — matches expected issuer URL
 aud  — contains your client_id
@@ -213,27 +151,18 @@ iat  — token was issued recently (clock skew ±30s)
 nonce — matches value generated at auth request (prevents replay)
 ```
 
-**TypeScript (ID token claim extraction after library validation):**
+**TypeScript (ID token validation with jose):**
 ```typescript
 import { jwtVerify, createRemoteJWKSet } from 'jose';
 
 const JWKS = createRemoteJWKSet(new URL('https://auth.example.com/.well-known/jwks.json'));
-
-interface IdTokenClaims {
-  sub: string;
-  email: string;
-  name: string;
-  nonce: string;
-}
 
 async function verifyIdToken(rawToken: string, expectedNonce: string): Promise<IdTokenClaims> {
   const { payload } = await jwtVerify(rawToken, JWKS, {
     issuer: 'https://auth.example.com',
     audience: process.env.CLIENT_ID,
   });
-  if (payload.nonce !== expectedNonce) {
-    throw new Error('nonce mismatch — possible replay attack');
-  }
+  if (payload.nonce !== expectedNonce) throw new Error('nonce mismatch — possible replay attack');
   return payload as unknown as IdTokenClaims;
 }
 ```
@@ -248,7 +177,6 @@ async function verifyIdToken(rawToken: string, expectedNonce: string): Promise<I
 - JWT stored in `localStorage` — accessible to XSS; any injected script can steal it
 - Missing or very long `exp` — compromised token valid indefinitely
 - `alg: none` accepted — bypasses signature verification entirely
-- RS256 key used for both signing and verification without isolating the private key
 - Refresh tokens stored in `localStorage` — see above
 - Token not invalidated on logout — must use a denylist or short-lived tokens
 
@@ -258,91 +186,45 @@ Access token  → memory (JS variable / React state) — short-lived (5–15 min
 Refresh token → HttpOnly, Secure, SameSite=Strict cookie — longer-lived (days)
 ```
 
-**TypeScript (issuing tokens):**
+**TypeScript (issuing tokens + refresh cookie):**
 ```typescript
 import jwt from 'jsonwebtoken';
 import { randomUUID } from 'node:crypto';
 
-const ACCESS_TOKEN_TTL = 15 * 60;       // 15 minutes
+const ACCESS_TOKEN_TTL = 15 * 60;        // 15 min
 const REFRESH_TOKEN_TTL = 7 * 24 * 3600; // 7 days
 
-function issueTokenPair(userId: string, roles: string[]): { accessToken: string; refreshToken: string } {
-  const accessToken = jwt.sign(
-    { sub: userId, roles, jti: randomUUID() },
-    process.env.JWT_SECRET!,
-    { algorithm: 'HS256', expiresIn: ACCESS_TOKEN_TTL }
-  );
-  const refreshToken = jwt.sign(
-    { sub: userId, jti: randomUUID() },
-    process.env.REFRESH_SECRET!,
-    { algorithm: 'HS256', expiresIn: REFRESH_TOKEN_TTL }
-  );
+function issueTokenPair(userId: string, roles: string[]) {
+  const accessToken = jwt.sign({ sub: userId, roles, jti: randomUUID() },
+    process.env.JWT_SECRET!, { algorithm: 'HS256', expiresIn: ACCESS_TOKEN_TTL });
+  const refreshToken = jwt.sign({ sub: userId, jti: randomUUID() },
+    process.env.REFRESH_SECRET!, { algorithm: 'HS256', expiresIn: REFRESH_TOKEN_TTL });
   return { accessToken, refreshToken };
 }
 
-// Set refresh token as HttpOnly cookie — never expose to JS
 function setRefreshCookie(res: Response, token: string): void {
   res.cookie('refresh_token', token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
-    maxAge: REFRESH_TOKEN_TTL * 1000,
-    path: '/auth/refresh',   // scope to refresh endpoint only
+    httpOnly: true, secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict', maxAge: REFRESH_TOKEN_TTL * 1000,
+    path: '/auth/refresh',  // scope to refresh endpoint only
   });
 }
 ```
 
-**Token rotation (refresh endpoint):**
+**Token rotation (refresh endpoint — denylist via Redis JTI):**
 ```typescript
 app.post('/auth/refresh', async (req, res) => {
   const oldRefresh = req.cookies['refresh_token'];
   if (!oldRefresh) return res.status(401).json({ error: 'No refresh token' });
-
   try {
     const payload = jwt.verify(oldRefresh, process.env.REFRESH_SECRET!) as jwt.JwtPayload;
-    // Check denylist (Redis) to prevent reuse of rotated tokens
-    const revoked = await redis.get(`revoked:${payload.jti}`);
-    if (revoked) return res.status(401).json({ error: 'Token reused' });
-
-    // Revoke old token
-    await redis.setex(`revoked:${payload.jti}`, REFRESH_TOKEN_TTL, '1');
-
-    // Issue new pair
+    if (await redis.get(`revoked:${payload.jti}`)) return res.status(401).json({ error: 'Token reused' });
+    await redis.setex(`revoked:${payload.jti}`, REFRESH_TOKEN_TTL, '1');  // revoke old
     const { accessToken, refreshToken } = issueTokenPair(payload.sub!, payload.roles ?? []);
     setRefreshCookie(res, refreshToken);
     res.json({ accessToken });
-  } catch {
-    res.status(401).json({ error: 'Invalid refresh token' });
-  }
+  } catch { res.status(401).json({ error: 'Invalid refresh token' }); }
 });
-```
-
-**Go (JWT validation middleware):**
-```go
-func JWTMiddleware(secret []byte) func(http.Handler) http.Handler {
-    return func(next http.Handler) http.Handler {
-        return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-            header := r.Header.Get("Authorization")
-            if !strings.HasPrefix(header, "Bearer ") {
-                http.Error(w, "missing token", http.StatusUnauthorized)
-                return
-            }
-            tokenStr := strings.TrimPrefix(header, "Bearer ")
-            token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(t *jwt.Token) (interface{}, error) {
-                if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-                    return nil, fmt.Errorf("unexpected alg: %v", t.Header["alg"])
-                }
-                return secret, nil
-            })
-            if err != nil || !token.Valid {
-                http.Error(w, "invalid token", http.StatusUnauthorized)
-                return
-            }
-            ctx := context.WithValue(r.Context(), claimsKey, token.Claims)
-            next.ServeHTTP(w, r.WithContext(ctx))
-        })
-    }
-}
 ```
 
 ---
@@ -358,35 +240,28 @@ func JWTMiddleware(secret []byte) func(http.Handler) http.Handler {
 - No audit log when role assignments change
 - Permission logic duplicated across controllers instead of centralized
 
-**TypeScript (middleware + decorator approach):**
+**TypeScript (middleware approach):**
 ```typescript
 type Role = 'admin' | 'editor' | 'viewer';
 
 function requireRole(...roles: Role[]) {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     const userRoles: Role[] = req.user?.roles ?? [];
-    const allowed = roles.some(r => userRoles.includes(r));
-    if (!allowed) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
+    if (!roles.some(r => userRoles.includes(r))) return res.status(403).json({ error: 'Forbidden' });
     next();
   };
 }
-
-// Routes declare required roles — enforcement is NOT in the UI
 router.delete('/articles/:id', requireRole('admin', 'editor'), deleteArticle);
 router.get('/admin/users', requireRole('admin'), listUsers);
 ```
 
-**Java (Spring Security method security):**
+**Java (Spring Security — annotation-based, enforced at service layer):**
 ```java
-@Configuration
-@EnableMethodSecurity
+@Configuration @EnableMethodSecurity
 public class SecurityConfig { /* ... */ }
 
 @Service
 public class ArticleService {
-    // RBAC enforced at service layer — not just controller
     @PreAuthorize("hasAnyRole('ADMIN', 'EDITOR')")
     public void deleteArticle(String id) { articleRepo.deleteById(id); }
 
@@ -395,7 +270,9 @@ public class ArticleService {
 }
 ```
 
-**RBAC permission matrix design:**
+Note: Spring annotations are materially different from Express middleware — they enforce at the service layer via AOP, not the HTTP layer.
+
+**RBAC permission matrix:**
 ```
 Role      | create | read | update | delete | manage_users
 ----------|--------|------|--------|--------|-------------
@@ -416,54 +293,40 @@ admin     |   X    |  X   |   X    |   X    |      X
 - No centralized policy store — policies drift across services over time
 - Resource ownership not checked — any editor can mutate any resource
 
-**OPA (Open Policy Agent) — Rego policy:**
+**OPA (Rego policy):**
 ```rego
 package articles
-
 import future.keywords.if
-
 default allow := false
 
-# Admins can do anything
-allow if {
-    input.user.role == "admin"
-}
+allow if { input.user.role == "admin" }
 
-# Editors can update their own articles only
 allow if {
     input.action == "update"
     input.user.role == "editor"
     input.resource.owner_id == input.user.id
 }
 
-# Viewers can only read published articles
 allow if {
     input.action == "read"
     input.resource.status == "published"
 }
 ```
 
-**TypeScript (OPA sidecar query):**
+**TypeScript (OPA sidecar query + middleware):**
 ```typescript
 async function isAuthorized(input: PolicyInput): Promise<boolean> {
   const resp = await fetch('http://localhost:8181/v1/data/articles/allow', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ input }),
   });
   if (!resp.ok) throw new Error(`OPA error: ${resp.status}`);
-  const { result } = await resp.json() as { result: boolean };
-  return result;
+  return (await resp.json() as { result: boolean }).result;
 }
 
-// Middleware using OPA
 function opaGuard(action: string) {
   return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-    const allowed = await isAuthorized({
-      user: { id: req.user.id, role: req.user.role },
-      action,
-      resource: req.resource,  // populated by prior middleware
-    });
+    const allowed = await isAuthorized({ user: { id: req.user.id, role: req.user.role }, action, resource: req.resource });
     if (!allowed) return res.status(403).json({ error: 'Forbidden' });
     next();
   };
@@ -499,60 +362,33 @@ Cross-reference: `security-patterns-code-review` — policy enforcement checklis
 - Self-signed certs accepted without pinning or CA validation
 - No mutual authentication — only the client verifies the server
 
-**mTLS with SPIFFE/SVID (Workload Identity):**
+**mTLS with SPIFFE/SVID (Workload Identity) — Go:**
 ```go
-// Both client and server present certificates — mutual verification
 func newMTLSClient(certFile, keyFile, caFile string) (*http.Client, error) {
     cert, err := tls.LoadX509KeyPair(certFile, keyFile)
-    if err != nil {
-        return nil, fmt.Errorf("load cert: %w", err)
-    }
-    caCert, err := os.ReadFile(caFile)
-    if err != nil {
-        return nil, fmt.Errorf("read CA: %w", err)
-    }
+    if err != nil { return nil, fmt.Errorf("load cert: %w", err) }
+    caCert, _ := os.ReadFile(caFile)
     caPool := x509.NewCertPool()
-    if !caPool.AppendCertsFromPEM(caCert) {
-        return nil, errors.New("invalid CA cert")
-    }
-    tlsCfg := &tls.Config{
-        Certificates: []tls.Certificate{cert},
-        RootCAs:      caPool,
-        MinVersion:   tls.VersionTLS13,
-    }
-    return &http.Client{Transport: &http.Transport{TLSClientConfig: tlsCfg}}, nil
+    if !caPool.AppendCertsFromPEM(caCert) { return nil, errors.New("invalid CA cert") }
+    return &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{
+        Certificates: []tls.Certificate{cert}, RootCAs: caPool, MinVersion: tls.VersionTLS13,
+    }}}, nil
 }
 ```
 
-**Workload identity (Kubernetes / GCP):**
-```python
-import google.auth
-import google.auth.transport.requests
-import httpx
-
-def call_internal_service(url: str) -> dict:
-    """Use GCP workload identity — no static credentials."""
-    credentials, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
-    auth_req = google.auth.transport.requests.Request()
-    credentials.refresh(auth_req)
-
-    resp = httpx.get(url, headers={"Authorization": f"Bearer {credentials.token}"})
-    resp.raise_for_status()
-    return resp.json()
-```
+**Workload identity (GCP/Kubernetes):** Use Application Default Credentials — platform injects a short-lived token via workload identity binding; no static credentials in code. For cross-cloud, use SPIFFE SVID via spiffe-helper sidecar.
 
 **API key best practices (when mTLS is not available):**
 ```typescript
-// Key per service, rotated via secret manager — never in code
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY;
 if (!INTERNAL_API_KEY) throw new Error('INTERNAL_API_KEY not configured');
 
 function validateApiKey(req: Request, res: Response, next: NextFunction): void {
-  const providedKey = req.headers['x-api-key'];
-  // Constant-time comparison to prevent timing attacks
+  const provided = req.headers['x-api-key'];
   const expected = Buffer.from(INTERNAL_API_KEY);
-  const provided = Buffer.from(typeof providedKey === 'string' ? providedKey : '');
-  if (provided.length !== expected.length || !crypto.timingSafeEqual(provided, expected)) {
+  const providedBuf = Buffer.from(typeof provided === 'string' ? provided : '');
+  // Constant-time comparison to prevent timing attacks
+  if (providedBuf.length !== expected.length || !crypto.timingSafeEqual(providedBuf, expected)) {
     res.status(401).json({ error: 'Unauthorized' });
     return;
   }
@@ -577,33 +413,18 @@ Cross-reference: `microservices-resilience-patterns` — service mesh for mTLS a
 
 **TypeScript (Express session hardening):**
 ```typescript
-import session from 'express-session';
-import RedisStore from 'connect-redis';
-import { createClient } from 'redis';
-
-const redisClient = createClient({ url: process.env.REDIS_URL });
-await redisClient.connect();
-
 app.use(session({
   store: new RedisStore({ client: redisClient }),
   secret: process.env.SESSION_SECRET!,  // 32+ random bytes
   name: '__Host-sid',                   // __Host- prefix enforces secure + path=/
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    httpOnly: true,
-    secure: true,
-    sameSite: 'strict',
-    maxAge: 30 * 60 * 1000,  // 30-minute idle timeout
-  },
+  resave: false, saveUninitialized: false,
+  cookie: { httpOnly: true, secure: true, sameSite: 'strict', maxAge: 30 * 60 * 1000 },
 }));
 
-// MANDATORY: rotate session on login to prevent fixation
+// MANDATORY: rotate session ID on login to prevent fixation
 app.post('/login', async (req, res) => {
   const user = await authenticate(req.body.email, req.body.password);
   if (!user) return res.status(401).json({ error: 'Invalid credentials' });
-
-  // Regenerate session ID before setting user data
   req.session.regenerate((err) => {
     if (err) return res.status(500).json({ error: 'Session error' });
     req.session.userId = user.id;
@@ -612,7 +433,7 @@ app.post('/login', async (req, res) => {
   });
 });
 
-// Invalidate session on logout — do not just clear the cookie
+// Destroy session on logout — do not just clear the cookie
 app.post('/logout', (req, res) => {
   req.session.destroy((err) => {
     if (err) return res.status(500).json({ error: 'Logout failed' });
@@ -622,23 +443,7 @@ app.post('/logout', (req, res) => {
 });
 ```
 
-**Java (Spring Session + Redis):**
-```java
-@Configuration
-@EnableRedisHttpSession(maxInactiveIntervalInSeconds = 1800)
-public class SessionConfig {
-    @Bean
-    public CookieSerializer cookieSerializer() {
-        DefaultCookieSerializer serializer = new DefaultCookieSerializer();
-        serializer.setCookieName("__Host-sid");
-        serializer.setUseHttpOnlyCookie(true);
-        serializer.setUseSecureCookie(true);
-        serializer.setSameSite("Strict");
-        serializer.setCookiePath("/");
-        return serializer;
-    }
-}
-```
+Java (Spring Session + Redis): equivalent via `@EnableRedisHttpSession(maxInactiveIntervalInSeconds = 1800)` + `DefaultCookieSerializer` with `setUseHttpOnlyCookie`, `setUseSecureCookie`, `setSameSite("Strict")`.
 
 ---
 
@@ -654,46 +459,30 @@ public class SessionConfig {
 
 **TypeScript (device flow client):**
 ```typescript
-interface DeviceCodeResponse {
-  device_code: string;
-  user_code: string;
-  verification_uri: string;
-  expires_in: number;
-  interval: number;
-}
-
 async function authenticateDevice(): Promise<string> {
-  // Step 1: Request device code
-  const dcResp = await fetch('https://auth.example.com/device/code', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  // Step 1: request device code
+  const dc = await fetch('https://auth.example.com/device/code', {
+    method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ client_id: process.env.CLIENT_ID!, scope: 'openid profile' }),
-  });
-  const dc: DeviceCodeResponse = await dcResp.json();
-
+  }).then(r => r.json());
   console.log(`Go to ${dc.verification_uri} and enter: ${dc.user_code}`);
 
-  // Step 2: Poll until authorized, expired, or denied
+  // Step 2: poll until authorized or expired
   const deadline = Date.now() + dc.expires_in * 1000;
   while (Date.now() < deadline) {
     await new Promise(r => setTimeout(r, dc.interval * 1000));
-
     const tokenResp = await fetch('https://auth.example.com/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-        device_code: dc.device_code,
-        client_id: process.env.CLIENT_ID!,
+        device_code: dc.device_code, client_id: process.env.CLIENT_ID!,
       }),
     });
     const body = await tokenResp.json();
-
     if (tokenResp.ok) return body.access_token;
     if (body.error === 'slow_down') await new Promise(r => setTimeout(r, 5000));
-    if (body.error === 'access_denied' || body.error === 'expired_token') {
+    if (body.error === 'access_denied' || body.error === 'expired_token')
       throw new Error(`Auth failed: ${body.error}`);
-    }
     // authorization_pending — continue polling
   }
   throw new Error('Device code expired');
@@ -717,29 +506,18 @@ async function authenticateDevice(): Promise<string> {
 | **alg:none JWT accepted** | Attacker creates unsigned tokens that pass verification | Explicitly whitelist allowed algorithms; reject `none` |
 | **No logout invalidation** | Session/token valid after user logs out | Destroy server-side session; add JTI to a denylist on logout |
 
-**Hardcoded secret — TypeScript fix:**
+**Red Flags — quick fixes:**
 ```typescript
-// WRONG
+// WRONG: hardcoded secret
 const JWT_SECRET = 'my-super-secret-key-123';
-
-// CORRECT — validated at startup
+// CORRECT
 const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET || JWT_SECRET.length < 32) {
-  throw new Error('JWT_SECRET must be set and at least 32 characters');
-}
-```
+if (!JWT_SECRET || JWT_SECRET.length < 32) throw new Error('JWT_SECRET must be set and ≥32 chars');
 
-**Frontend-only role check — fix:**
-```typescript
-// WRONG — UI hides button but API is unprotected
+// WRONG: UI-only guard
 {user.role === 'admin' && <DeleteButton />}
-
-// CORRECT — API enforces the same rule
-router.delete('/articles/:id',
-  requireRole('admin'),   // middleware on the server
-  deleteArticle
-);
-// UI check is cosmetic only — the real gate is the API
+// CORRECT: server enforces the same rule
+router.delete('/articles/:id', requireRole('admin'), deleteArticle);
 ```
 
 ---
