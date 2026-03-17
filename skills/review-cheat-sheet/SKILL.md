@@ -9,6 +9,8 @@ description: Use when starting any code review and you need a single-page master
 
 This is the navigator for the entire review skill library. Load this skill first, scan for the relevant phase, follow the check, then jump to the linked skill for deeper guidance. A full review using this sheet takes 20–45 minutes for a typical PR; the First Pass alone takes under 5 minutes.
 
+For efficiency guidance on ordering and time-boxing your review, see `review-efficiency-patterns`. For universal signals that apply across all languages, see `cross-language-review-heuristics`.
+
 ---
 
 ## Severity Quick Reference
@@ -20,6 +22,8 @@ This is the navigator for the entire review skill library. Load this skill first
 | Likely to cause a defect or maintenance burden | **MEDIUM** | Request changes or leave note |
 | Style, preference, or minor improvement | **LOW** | Suggest, do not block |
 | Optional, reviewer preference | **NIT** | Prefix comment with "nit:" |
+
+For confidence scoring, false positive reduction, and calibrating severity judgments, see `review-accuracy-calibration`. For writing actionable comments at each severity level, see `review-feedback-quality`.
 
 ---
 
@@ -39,6 +43,8 @@ Check these first. If any are true, leave a blocking comment immediately and ski
 
 Answer each question. If the answer is "no" or "unsure", flag before deep review.
 
+For risk-based ordering, time-boxing guidance, and when to stop reviewing, see `review-efficiency-patterns`. For configuring static analysis and CI gates to automate part of this pass, see `review-automation-patterns`.
+
 | Check | Flag if... | Details |
 |-------|-----------|---------|
 | Does it build and pass CI? | CI is red or not run | Block — see Stop the PR |
@@ -48,6 +54,7 @@ Answer each question. If the answer is "no" or "unsure", flag before deep review
 | Any obvious N+1 queries? | Loop around a DB call | Flag for Phase 2 deep dive on `performance-anti-patterns` |
 | Any obvious XSS or injection? | Unescaped user input in HTML/SQL | CRITICAL — stop immediately |
 | Is the change scoped to one concern? | Mixes refactor + feature + bug fix | Ask to split into separate PRs |
+| Is this AI-generated or LLM-assisted code? | Comments, commit message, or PR description indicate AI authorship | Apply extra scrutiny; see `ai-generated-code-review` |
 
 ---
 
@@ -190,11 +197,21 @@ Deeper skill: `dependency-injection-module-patterns`
 - Package version pinned; no unpinned floating major version?
 
 ### Language Idioms
-Deeper skill: `language-specific-idioms`
+Deeper skills: `language-specific-idioms`, `cross-language-review-heuristics`
 
 - Code follows the conventions of the language (error returns in Go, Result types in Rust, async/await in JS)?
 - No anti-patterns specific to the language (mutable default args in Python, `==` on objects in Java)?
 - Standard library used where available instead of hand-rolling utilities?
+
+For universal review signals that transfer across languages, see `cross-language-review-heuristics`.
+
+#### Language-Specific Deep Dives
+- **Go** — goroutine leaks, context propagation, idiomatic error handling: `go-review-patterns`
+- **Python** — mutable default arguments, type hints, GIL interactions: `python-review-patterns`
+- **TypeScript** — type escape hatches (`any`, `as`), async pitfalls, React hooks rules: `typescript-review-patterns`
+- **Rust** — ownership/borrowing violations, unsafe blocks, lifetime annotations: `rust-review-patterns`
+- **Java** — null safety, Stream API misuse, concurrency, generics: `java-review-patterns`
+- **C++** — RAII, undefined behavior, templates, move semantics: `cpp-review-patterns`
 
 ### Messaging and Async Workflows
 Deeper skills: `message-queue-patterns`, `data-pipeline-patterns`
@@ -336,6 +353,28 @@ Deeper skill: `code-documentation-patterns`
 | Multi-tenancy patterns | `multi-tenancy-patterns` |
 | Search and indexing patterns | `search-indexing-patterns` |
 | Internationalization and localization patterns | `i18n-l10n-patterns` |
+
+### Review Meta-Skills (Cycles 19–20)
+
+| Dimension | Skill |
+|-----------|-------|
+| Confidence scoring and severity calibration | `review-accuracy-calibration` |
+| Reviewing LLM/AI-generated code | `ai-generated-code-review` |
+| Writing actionable review comments | `review-feedback-quality` |
+| Risk-based ordering and time-boxing | `review-efficiency-patterns` |
+| Static analysis integration and CI gate configuration | `review-automation-patterns` |
+| Universal review signals across all languages | `cross-language-review-heuristics` |
+
+### Language-Specific Review Guides (Cycles 19–22)
+
+| Language | Skill |
+|----------|-------|
+| Go | `go-review-patterns` |
+| Python | `python-review-patterns` |
+| TypeScript / JavaScript | `typescript-review-patterns` |
+| Rust | `rust-review-patterns` |
+| Java | `java-review-patterns` |
+| C++ | `cpp-review-patterns` |
 
 ### Refactoring Skills
 

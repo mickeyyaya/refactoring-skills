@@ -1,8 +1,8 @@
 # Refactoring & Design Pattern Skills for Claude Code
 
-A comprehensive library of **54 skills** for [Claude Code](https://claude.ai/claude-code) covering refactoring, design patterns, code review, software engineering best practices, microservices, distributed systems, DevOps, security, AI/ML integration, and more across **6 programming languages**. Built from [refactoring.guru](https://refactoring.guru/), Gang of Four patterns, OWASP, and industry best practices.
+A comprehensive library of **67 skills** for [Claude Code](https://claude.ai/claude-code) covering refactoring, design patterns, code review, software engineering best practices, microservices, distributed systems, DevOps, security, AI/ML integration, and more across **6 programming languages**. Built from [refactoring.guru](https://refactoring.guru/), Gang of Four patterns, OWASP, and industry best practices.
 
-## Skills Library (54 skills, ~25,000+ lines)
+## Skills Library (67 skills, ~25,000+ lines)
 
 ### Refactoring Techniques (8 skills)
 | Skill | Coverage |
@@ -23,7 +23,7 @@ A comprehensive library of **54 skills** for [Claude Code](https://claude.ai/cla
 | `design-patterns-behavioral` | 11 GoF patterns: Strategy, Observer, Command, State, etc. |
 | `architectural-patterns` | 10 patterns: MVC, Clean Architecture, Hexagonal, CQRS, etc. |
 
-### Code Review (5 skills)
+### Code Review (11 skills)
 | Skill | Coverage |
 |-------|----------|
 | `review-cheat-sheet` | Master reference — 3-phase review with cross-refs to all skills |
@@ -31,6 +31,22 @@ A comprehensive library of **54 skills** for [Claude Code](https://claude.ai/cla
 | `review-solid-clean-code` | 5 SOLID principles + DRY, KISS, YAGNI, Law of Demeter |
 | `review-api-contract` | REST, GraphQL, OpenAPI contract review with checklists |
 | `refactoring-decision-matrix` | Maps 23 smells to fix techniques with risk/difficulty ratings |
+| `review-accuracy-calibration` | Confidence scoring, false positive reduction, severity calibration |
+| `ai-generated-code-review` | Patterns for reviewing LLM-generated code |
+| `review-feedback-quality` | How to write actionable review comments |
+| `review-efficiency-patterns` | Risk-based ordering, time-boxing, when to stop |
+| `review-automation-patterns` | Static analysis integration, CI gate configuration |
+| `cross-language-review-heuristics` | Universal review signals across all languages |
+
+### Language-Specific Review Guides (6 skills)
+| Skill | Coverage |
+|-------|----------|
+| `go-review-patterns` | Goroutine leaks, context propagation, error handling |
+| `python-review-patterns` | Mutable defaults, type hints, GIL, Pythonic idioms |
+| `typescript-review-patterns` | Type escape hatches, async pitfalls, React hooks |
+| `rust-review-patterns` | Ownership/borrowing, unsafe blocks, lifetimes |
+| `java-review-patterns` | Null safety, Stream API, concurrency, generics |
+| `cpp-review-patterns` | RAII, undefined behavior, templates, move semantics |
 
 ### Anti-Patterns & Performance (3 skills)
 | Skill | Coverage |

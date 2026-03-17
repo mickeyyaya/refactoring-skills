@@ -1,6 +1,6 @@
 ---
 name: skill-catalog
-description: Master navigation and dispatch index for all 54 skills — invoke this skill first when unsure which skill covers your task. Maps common scenarios, tasks, and questions to the right skill via a quick dispatch table, domain category index, and decision FAQ.
+description: Master navigation and dispatch index for all 67 skills — invoke this skill first when unsure which skill covers your task. Maps common scenarios, tasks, and questions to the right skill via a quick dispatch table, domain category index, and decision FAQ.
 ---
 
 # Skill Catalog — Navigation & Dispatch Index
@@ -79,12 +79,24 @@ Use this table for fast lookup. Find the scenario closest to your current task, 
 | Developer onboarding, local-prod parity, fast feedback loops | `developer-experience-patterns` |
 | File upload, presigned URLs, resumable uploads, upload security | `file-upload-media-patterns` |
 | Image optimization, async media processing, CDN transforms, content-addressable storage | `file-upload-media-patterns` |
+| Calibrate review confidence, reduce false positives, tune severity | `review-accuracy-calibration` |
+| Review LLM-generated or AI-assisted code | `ai-generated-code-review` |
+| Write actionable, clear review feedback comments | `review-feedback-quality` |
+| Risk-based review ordering, time-boxing, when to stop reviewing | `review-efficiency-patterns` |
+| Select static analysis tools, configure CI quality gates | `review-automation-patterns` |
+| Apply universal review signals across any language | `cross-language-review-heuristics` |
+| Review Go code: goroutine leaks, context propagation, error handling | `go-review-patterns` |
+| Review Python code: mutable defaults, type hints, GIL, idioms | `python-review-patterns` |
+| Review TypeScript code: type escape hatches, async pitfalls, React hooks | `typescript-review-patterns` |
+| Review Rust code: ownership, borrowing, unsafe blocks, lifetimes | `rust-review-patterns` |
+| Review Java code: null safety, Stream API, concurrency, generics | `java-review-patterns` |
+| Review C++ code: RAII, undefined behavior, templates, move semantics | `cpp-review-patterns` |
 
 ---
 
 ### Category Index by Domain
 
-The 54 skills are organized into 15 domains. Use this index when you want to explore an area broadly rather than targeting a specific task.
+The 67 skills are organized into 15 domains. Use this index when you want to explore an area broadly rather than targeting a specific task.
 
 ---
 
@@ -119,7 +131,7 @@ Classic GoF and modern patterns for structuring objects and interactions.
 
 ---
 
-#### Code Review (5 skills)
+#### Code Review (17 skills)
 
 Structured review processes and checklists for PRs and design documents.
 
@@ -130,6 +142,18 @@ Structured review processes and checklists for PRs and design documents.
 | `review-api-contract` | REST API design review: versioning, pagination, error contracts |
 | `review-cheat-sheet` | One-page quick-reference checklist for common review criteria |
 | `anti-patterns-catalog` | Catalog of well-known anti-patterns to flag during review |
+| `review-accuracy-calibration` | Confidence scoring, false positive reduction, severity calibration |
+| `ai-generated-code-review` | Patterns for reviewing LLM-generated and AI-assisted code |
+| `review-feedback-quality` | How to write actionable, clear review comments |
+| `review-efficiency-patterns` | Risk-based ordering, time-boxing, when to stop reviewing |
+| `review-automation-patterns` | Static analysis tool selection, CI gate configuration |
+| `cross-language-review-heuristics` | Universal review signals that apply across all languages |
+| `go-review-patterns` | Goroutine leaks, context propagation, idiomatic error handling in Go |
+| `python-review-patterns` | Mutable defaults, type hints, GIL awareness, Pythonic idioms |
+| `typescript-review-patterns` | Type escape hatches, async pitfalls, React hooks review |
+| `rust-review-patterns` | Ownership and borrowing, unsafe blocks, lifetime annotations |
+| `java-review-patterns` | Null safety, Stream API misuse, concurrency, generics |
+| `cpp-review-patterns` | RAII, undefined behavior, templates, move semantics |
 
 ---
 
@@ -350,7 +374,7 @@ Use `multi-tenancy-patterns` as the primary skill. Supplement with `auth-authz-p
 |--------|-------------|
 | Refactoring | 10 |
 | Design Patterns | 3 |
-| Code Review | 5 |
+| Code Review | 17 |
 | Anti-Patterns and Performance | 2 |
 | Cross-Cutting Concerns | 5 |
 | Security and Auth | 3 |
@@ -363,9 +387,9 @@ Use `multi-tenancy-patterns` as the primary skill. Supplement with `auth-authz-p
 | AI & ML Integration | 1 |
 | Developer Experience | 1 |
 | File & Media Processing | 1 |
-| **Total** | **55** |
+| **Total** | **67** |
 
-Note: Some skills appear in multiple categories because they cross domain boundaries (e.g., `anti-patterns-catalog` is listed under both Code Review and Anti-Patterns). The unique skill count in the library is 54.
+Note: Some skills appear in multiple categories because they cross domain boundaries (e.g., `anti-patterns-catalog` is listed under both Code Review and Anti-Patterns). The unique skill count in the library is 66.
 
 ---
 
