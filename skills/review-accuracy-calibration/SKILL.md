@@ -7,15 +7,9 @@ description: Use when you want to improve the signal-to-noise ratio of any code 
 
 ## Overview
 
-The accuracy problem in code review has two faces: over-flagging (false positives that waste reviewer and author time) and under-flagging (missing real defects). Research shows AI-assisted review tools generate false positives that waste 2-5 hours per developer per week, and 25% of AI suggestions contain errors. The fix is not reviewing less — it is calibrating more precisely.
+The accuracy problem in code review has two faces: over-flagging (false positives that waste reviewer and author time) and under-flagging (missing real defects). AI-assisted review tools generate false positives that waste 2-5 hours per developer per week, and 25% of AI suggestions contain errors. The fix is not reviewing less — it is calibrating more precisely.
 
-This skill provides the meta-layer that makes every other review skill more effective: a confidence model for each finding, heuristics to suppress false positives before posting, a severity calibration table, and a clear escalation decision guide.
-
-Load this skill when:
-- You are about to post a batch of review comments and want to filter them
-- You are assigning severity levels and want consistent criteria
-- You are uncertain whether a finding is a real issue or a false positive
-- You need to decide whether to block a PR or leave a suggestion
+This skill provides the meta-layer that makes every other review skill more effective: a confidence model, heuristics to suppress false positives, a severity calibration table, and an escalation decision guide. Load when filtering comments, assigning severity, or deciding whether to block a PR.
 
 ---
 
@@ -72,7 +66,7 @@ Plausible concern but you lack full context:
 - Performance concern that depends on data volume you cannot see
 - Style inconsistency that may follow a team convention you are not aware of
 
-Action: Post as LOW or NIT with a conditional phrasing: "If X is true, consider Y." Do not block the PR on C2 alone.
+Action: Post as LOW or NIT with conditional phrasing: "If X is true, consider Y." Do not block the PR on C2 alone.
 
 ```
 // C2 example — depends on call site
@@ -95,32 +89,21 @@ Action: Do not post. Investigate first. If investigation raises it to C2+, then 
 
 ## False Positive Reduction
 
-Apply these heuristics before posting any comment. Each suppressed false positive saves the author time and keeps your signal credible.
+Apply these heuristics before posting any comment.
 
 ### Heuristic 1: Check Framework Conventions First
 
-Before flagging a pattern as wrong, verify it is not a required or idiomatic convention for the framework in use.
-
-- Django signals look like global side effects — they are intentional
-- React's `useEffect` with an empty dependency array is often correct
-- Go's `if err != nil { return err }` repetition is idiomatic, not duplication
-- Spring's `@Autowired` on a field is legacy style but not a bug
+Before flagging, verify it is not idiomatic for the framework. Django signals, React's empty-dep `useEffect`, Go's `if err != nil` chains, and Spring `@Autowired` fields are all intentional patterns.
 
 Test: Search the codebase for the same pattern. If it appears 10+ times untouched, it is likely intentional.
 
 ### Heuristic 2: Read the Surrounding Code Before Flagging
 
-A finding that looks wrong in isolation is often handled one function above or below.
-
-- Missing null check: look for validation at the entry point
-- Missing error handling: look for a global error middleware
-- No retry logic: look for a retry wrapper at the call site
+A finding that looks wrong in isolation is often handled one function above or below (null check at entry point, global error middleware, retry wrapper at call site).
 
 Test: Expand context by 20 lines in each direction before posting.
 
 ### Heuristic 3: Distinguish Language Idiom from Bug
-
-What is an error in one language is correct in another. Cross-language reviewers must recalibrate per language.
 
 | Language | Looks wrong | Is actually |
 |----------|-------------|-------------|
@@ -134,15 +117,13 @@ Test: Ask "would a senior engineer in this language agree this is wrong?"
 
 ### Heuristic 4: Require Measurable Impact for Performance Findings
 
-Do not flag performance issues based on intuition alone. Require a measurable reason.
-
-Post if: You can estimate a query count (N+1 with N=100 objects = 100 queries per request), a latency impact (synchronous sleep on the hot path), or a known O(n²) pattern on unbounded input.
+Post if: You can estimate a query count, latency impact, or known O(n²) pattern on unbounded input.
 
 Do not post if: You think it "might be slow" without a concrete model of why. Mark as C1 and drop.
 
 ### Heuristic 5: Separate Style from Correctness
 
-Style findings (naming, formatting, comment quality) must never be posted at MEDIUM or higher severity. Mixing style and correctness findings trains authors to dismiss all comments.
+Style findings must never be posted at MEDIUM or higher severity.
 
 - CRITICAL/HIGH: correctness only — data loss, security, logic errors
 - MEDIUM: design or maintainability (not blocking, but has a measurable cost)
@@ -152,24 +133,20 @@ Test: Would this finding cause a bug or incident if left unfixed? If no, it is L
 
 ### Heuristic 6: Verify the Finding Against Test Coverage
 
-If the code path in question is covered by a passing test, lower your confidence by one level. The test is evidence the author considered the case.
+If the code path is covered by a passing test, lower your confidence by one level.
 
 - Code path has a test → start at C3 max
 - Code path has no test → C4 is still possible
 
-Test: Check if there is a unit or integration test exercising the flagged code path.
-
 ### Heuristic 7: Time-Box Investigation Before Posting
 
-If you cannot confirm a C2 finding with 3 minutes of investigation, either post a question (not a change request) or drop it. Speculative comments create more noise than value.
+If you cannot confirm a C2 finding within 3 minutes, either post a question or drop it.
 
 Post a question: "Is there a reason X does not handle Y? Wondering if this is intentional."
 
 ---
 
 ## Severity Calibration Matrix
-
-Use this table to assign the final severity after confidence scoring. The cell shows the recommended severity for the combination of finding type and confidence level.
 
 | Finding Type | C4 — Certain | C3 — High | C2 — Medium | C1 — Low |
 |---|---|---|---|---|
@@ -190,8 +167,6 @@ Use this table to assign the final severity after confidence scoring. The cell s
 ---
 
 ## When to Escalate vs. Flag
-
-Use this decision guide for every finding above MEDIUM severity.
 
 ```
 Is the finding C4 (Certain) or C3 (High)?
@@ -235,35 +210,25 @@ Would leaving this unfixed increase maintenance cost or defect risk?
 
 ## Cross-Language Calibration
 
-Confidence thresholds differ by language because language design affects how errors surface.
-
-### TypeScript / JavaScript
-
-False positive risk: **Medium**. Dynamic types create ambiguity.
+### TypeScript / JavaScript — FP risk: Medium (dynamic types)
 - `any` type: flag at MEDIUM only if on a public API boundary; internal `any` is LOW
 - `==` vs `===`: flag at HIGH — type coercion bugs are real
 - `async/await` without try/catch: flag at MEDIUM if the function can throw
 - Missing `.catch()` on a Promise: HIGH if the Promise rejects on network failure
 
-### Python
-
-False positive risk: **High**. Duck typing makes many patterns look wrong but be correct.
+### Python — FP risk: High (duck typing)
 - Missing type hint: NIT only; not a correctness issue
 - Mutable default argument (`def f(x=[])`): HIGH — always a bug
 - Bare `except:`: MEDIUM — suppresses all exceptions including KeyboardInterrupt
 - `is` vs `==` on strings: MEDIUM in production, LOW in tests
 
-### Go
-
-False positive risk: **Low**. Explicit error returns make control flow visible.
+### Go — FP risk: Low (explicit error returns)
 - Ignored error return (`_`): HIGH for operations that can fail (file I/O, DB); NIT for operations that cannot
 - Goroutine without `WaitGroup` or `done` channel: HIGH if the goroutine outlives the function
 - `context` not propagated: MEDIUM if the function does I/O; NIT otherwise
 - `defer` in a loop: HIGH — deferred calls accumulate until function exit, not loop iteration
 
-### Java
-
-False positive risk: **Low**. Checked exceptions and static typing catch many issues at compile time.
+### Java — FP risk: Low (checked exceptions, static typing)
 - Raw types (`List` vs `List<T>`): MEDIUM — loses type safety at runtime
 - Catching `Exception` or `Throwable`: MEDIUM — too broad; cite the specific exception
 - `==` on objects: HIGH — reference equality, not value equality
@@ -273,23 +238,23 @@ False positive risk: **Low**. Checked exceptions and static typing catch many is
 
 ## Anti-Patterns in Calibration
 
-### Over-Flagging Anti-Patterns
+### Over-Flagging
 
-**Style-as-bug**: Posting naming conventions, formatting choices, or comment quality as HIGH or CRITICAL. This trains authors to ignore all comments.
+**Style-as-bug**: Posting naming conventions or formatting as HIGH or CRITICAL. Trains authors to ignore all comments.
 
-**Speculative performance**: Flagging code as "probably slow" without a model of why. Every loop is not an N+1. Every allocation is not a memory leak.
+**Speculative performance**: Flagging code as "probably slow" without a model of why. Every loop is not an N+1.
 
-**Framework ignorance**: Flagging patterns that are idiomatic or required in the framework without checking. Causes distrust of the reviewer.
+**Framework ignorance**: Flagging idiomatic patterns without checking. Causes distrust of the reviewer.
 
-**Confidence inflation**: Posting a C2 finding as C4 language to appear more authoritative. Destroys credibility when the author explains the context.
+**Confidence inflation**: Posting a C2 finding as C4. Destroys credibility when the author explains the context.
 
-### Under-Flagging Anti-Patterns
+### Under-Flagging
 
-**Security minimization**: Treating a potential injection or auth bypass as LOW because "it probably won't be exploited." Security findings get the full severity they deserve at C3+.
+**Security minimization**: Treating a potential injection or auth bypass as LOW because "it probably won't be exploited."
 
-**Complexity tolerance**: Accepting 200-line functions because "it works." Design issues compound. Flag at MEDIUM early before they become impossible to refactor.
+**Complexity tolerance**: Accepting 200-line functions because "it works." Design issues compound.
 
-**Test blind spot**: Not checking whether flagged behavior is tested. Missing test coverage is itself a MEDIUM finding, not just a context signal.
+**Test blind spot**: Not checking whether flagged behavior is tested. Missing test coverage is itself a MEDIUM finding.
 
 ---
 

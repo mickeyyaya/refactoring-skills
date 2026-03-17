@@ -7,13 +7,13 @@ description: Use when reviewing LLM/AI-generated code — covers hallucinated AP
 
 ## Overview
 
-AI-generated code fails differently than human-written code. A human who doesn't know an API will leave a TODO or look it up. An LLM will confidently invent a plausible-looking method that doesn't exist. A human writing access control will think about threat models. An LLM trained on tutorial code will skip auth entirely because tutorials rarely include it.
+AI-generated code fails differently than human-written code. An LLM will confidently invent a plausible-looking method that doesn't exist; it skips auth because tutorials rarely include it.
 
-**The core problem:** LLM-generated code is syntactically fluent but semantically unreliable. It looks correct at a glance, passes linters, and often passes type checkers — yet silently does the wrong thing, calls methods that don't exist, or leaves security-critical paths unguarded.
+**The core problem:** Syntactically fluent but semantically unreliable. It passes linters and type checkers yet silently calls methods that don't exist or leaves security-critical paths unguarded.
 
-**When to use this guide:** Any PR where a contributor used AI assistance, or where the code has the stylistic markers of AI output — unusually consistent formatting, generic variable names, verbose boilerplate, excessive comments explaining obvious things.
+**When to use:** Any PR with AI assistance markers — unusually consistent formatting, generic variable names, verbose boilerplate, comments explaining obvious things.
 
-**Mindset shift:** Standard review asks "is this code correct?" AI code review asks "did the AI understand the actual requirements, or did it generate plausible code for a slightly different problem?"
+**Mindset shift:** Don't ask "is this correct?" Ask "did the AI understand the actual requirements, or generate plausible code for a slightly different problem?"
 
 ## Quick Reference — AI Code Smell Severity
 
@@ -34,7 +34,7 @@ AI-generated code fails differently than human-written code. A human who doesn't
 
 ### Smell 1: Hallucinated API Calls
 
-The LLM invents method names that sound plausible given the object type but don't exist in the actual library. Common in: date/time libraries, ORMs, SDK clients, testing utilities.
+LLM invents method names that sound plausible but don't exist. Common in: date/time libraries, ORMs, SDK clients, testing utilities.
 
 **Signals:**
 - Method names that read naturally but produce `TypeError`/`AttributeError` at runtime
@@ -58,13 +58,11 @@ const activeUsers = await prisma.user.findMany({
 });
 ```
 
-**Detection strategy:** Run the code. If you can't, search the official API docs or source for the exact method name. Don't trust that "it looks right."
-
----
+**Detection strategy:** Run the code. If you can't, search the official API docs for the exact method name. Don't trust that "it looks right."
 
 ### Smell 2: Plausible-but-Wrong Logic
 
-The code runs without errors and produces output that looks reasonable — but the logic is subtly incorrect. LLMs frequently get: off-by-one errors in date arithmetic, inverted boolean conditions, wrong operator precedence, comparing by reference instead of value.
+Code runs and looks reasonable, but logic is subtly incorrect. LLMs frequently get: off-by-one in date arithmetic, inverted boolean conditions, wrong operator precedence, reference vs. value comparisons.
 
 **Signals:**
 - Business logic in a domain you know — does the math actually work?
@@ -91,13 +89,11 @@ def get_page_items(items: list, page: int, page_size: int) -> list:
     return items[start:end]
 ```
 
-**Detection strategy:** Trace the logic with a concrete example. Don't read what you expect the code to do — trace what it actually does, step by step.
-
----
+**Detection strategy:** Trace the logic with a concrete example. Don't read what you expect — trace what it actually does, step by step.
 
 ### Smell 3: Missing Authorization Checks
 
-LLMs trained on tutorial code produce unauthenticated-by-default patterns. Authentication middleware often gets added, but authorization (does this user own this resource? do they have the right role?) is frequently absent.
+Authentication middleware often gets added; authorization (ownership, role) is frequently absent.
 
 **Signals:**
 - Route fetches a resource by user-supplied ID without verifying ownership
@@ -125,11 +121,9 @@ router.get('/documents/:id', requireAuth, async (req, res) => {
 
 See also: `security-patterns-code-review` pattern 5 (Broken Access Control).
 
----
-
 ### Smell 4: Shallow Error Handling
 
-LLMs often generate the happy path with perfunctory catch blocks. The catch either swallows the error silently, re-throws without context, or logs a generic message that destroys the stack trace.
+LLMs generate happy-path code with catch blocks that swallow errors silently or log generic messages that destroy the stack trace.
 
 **Signals:**
 - `catch (e) { console.log(e) }` or `except: pass`
@@ -173,11 +167,9 @@ func fetchUserProfile(userID string) (*UserProfile, error) {
 
 See also: `error-handling-patterns` for wrapping conventions.
 
----
-
 ### Smell 5: Over-Abstraction
 
-LLMs default to "enterprise" patterns — factories, strategy objects, dependency injection containers — even when the code has one caller, one use case, and will never need extension. This adds indirection that increases cognitive load without adding value.
+LLMs default to enterprise patterns — factories, strategy objects, DI containers — even for single-use code.
 
 **Signals:**
 - Interface defined and immediately implemented by a single concrete type, never tested via the interface
@@ -203,13 +195,11 @@ await strategy.send(user.email, subject, body);
 await emailService.send(user.email, subject, body);
 ```
 
-**Rule:** If you can't name a second implementor of the interface that would realistically exist, the interface is premature. Remove the abstraction.
-
----
+**Rule:** If you can't name a second implementor that would realistically exist, the interface is premature. Remove the abstraction.
 
 ### Smell 6: Copy-Paste Context Mismatch
 
-LLMs synthesize code from training data across many library versions and frameworks. The generated code may be syntactically valid for an older version of the library, a different framework in the same language, or a language with similar syntax.
+Generated code may be syntactically valid for an older version, a different framework, or a language with similar syntax.
 
 **Signals:**
 - Callback-style async in a codebase that uses async/await throughout
@@ -217,19 +207,17 @@ LLMs synthesize code from training data across many library versions and framewo
 - Python 2 idioms (`print` statements, `unicode()`, `xrange`) in a Python 3 project
 - `github.com/dgrijalva/jwt-go` (archived) instead of `github.com/golang-jwt/jwt/v5`
 
-**Detection strategy:** Check the imported package version against what is installed. Check that the idiom is idiomatic for the project's established style, not just valid for the language.
-
----
+**Detection strategy:** Check the imported package version against what is installed. Verify the idiom is idiomatic for the project's style, not just valid for the language.
 
 ### Smell 7: Missing Edge Cases (Happy-Path Only)
 
-LLMs optimize for code that works in the normal case. Edge case handling — empty collections, nil/null inputs, integer overflow, concurrent access, network timeouts — is often absent or inconsistent.
+Edge case handling — empty collections, nil/null inputs, overflow, concurrent access, timeouts — is often absent.
 
 **Signals:**
 - No nil/null check before dereferencing a pointer or accessing a property
 - Division operation without zero-denominator guard
 - Array access at a computed index without bounds check
-- Database operation that assumes exactly one row (no handling for zero or multiple rows)
+- Database operation that assumes exactly one row
 - No timeout or cancellation context on external I/O
 
 ```typescript
@@ -256,18 +244,9 @@ async function processOrderItems(orderId: string): Promise<number> {
 }
 ```
 
----
-
 ### Smell 8: Outdated Patterns
 
-LLMs reflect their training data cutoff. Libraries release breaking changes, deprecate APIs, and retire packages. AI-generated code may use APIs that compile and run but are scheduled for removal, or rely on a package that has been archived.
-
-**Signals:**
-- Deprecation warnings in console output or test output that the developer ignored
-- Dependencies that `npm audit` or `pip-audit` flags as abandoned
-- Framework patterns that match the library's v1 docs, not v2/v3
-
-**Common examples by ecosystem:**
+LLMs reflect their training cutoff — generated code may use deprecated APIs or archived packages. Watch for deprecation warnings, `npm audit`/`pip-audit` hits, and v1 idioms in v2/v3 projects.
 
 | Ecosystem | Outdated | Current |
 |-----------|---------|---------|
@@ -281,38 +260,19 @@ LLMs reflect their training data cutoff. Libraries release breaking changes, dep
 
 ## Hallucinated API Detection
 
-When you see an API call you don't immediately recognize, apply this process before approving:
+1. Identify the exact call — package, object type, method name including casing.
+2. Check the installed version in `package.json`, `requirements.txt`, `go.mod`, or `Cargo.toml`.
+3. Search the official versioned API docs — LLM code often matches docs 1-2 major versions older.
+4. If in doubt, run it. A hallucinated method throws at runtime.
 
-**Step 1: Identify the exact call.** Note the package, the object type, and the exact method name including casing.
-
-**Step 2: Check the installed version.** In `package.json`, `requirements.txt`, `go.mod`, or `Cargo.toml` — what version is pinned?
-
-**Step 3: Search the official docs for that version.** Not Google — go to the specific library's versioned API reference. LLM-generated code often matches docs from a version 1-2 major versions older.
-
-**Step 4: If in doubt, run it.** A hallucinated method throws at runtime. A quick `node -e` or `python -c` snippet catches it faster than docs research.
-
-**High-risk libraries for hallucination** (large surface area, frequent version churn):
-- Prisma (ORM — method names vary significantly across versions)
-- AWS SDK v2 vs v3 (completely different import structure)
-- LangChain (rapid iteration, APIs change across minor versions)
-- SQLAlchemy (v1.x vs v2.x have incompatible query patterns)
-- React Query / TanStack Query (v3 vs v4/v5 API surface)
-
----
+**High-risk libraries:** Prisma, AWS SDK v2/v3, LangChain, SQLAlchemy (v1.x vs v2.x), React Query/TanStack Query (v3 vs v4/v5).
 
 ## Business Logic Verification
 
-Syntactic correctness does not imply semantic correctness. Use these techniques to verify that AI-generated logic actually implements the requirement:
-
-**Concrete trace.** Pick the simplest non-trivial input and manually trace through the code step by step. Write down the value of each variable at each step. Compare to the expected output.
-
-**Boundary test.** Identify the boundaries in the logic (comparisons, conditional branches, off-by-one arithmetic) and trace with inputs at each boundary: exactly at the threshold, one above, one below.
-
-**Inversion check.** For boolean conditions, ask: "what would a false value here mean?" If the inverted meaning is what the code should actually do, the condition is backwards.
-
-**Domain expert read.** For financial, medical, legal, or compliance logic: if you don't know the domain rules cold, don't approve the code based on reading it. Ask a domain expert to verify the formula or rule.
-
-**Common AI logic errors by category:**
+**Concrete trace.** Trace through the simplest non-trivial input step by step.
+**Boundary test.** Trace inputs at each boundary: at the threshold, one above, one below.
+**Inversion check.** For booleans, ask: "what would false mean here?" If the inverted meaning is what the code should do, the condition is backwards.
+**Domain expert read.** For financial, medical, legal, or compliance logic — if you don't know the domain cold, don't approve based on reading it.
 
 | Category | Common Error |
 |----------|-------------|
@@ -326,11 +286,9 @@ Syntactic correctness does not imply semantic correctness. Use these techniques 
 
 ## Security Gaps in AI Code
 
-AI-generated code has predictable security blind spots because LLM training data skews toward tutorial-style code that doesn't model threat actors.
+**Authorization vs. authentication gap.** AI reliably adds authentication but omits authorization. Review every resource-access endpoint for ownership and role checks.
 
-**Authorization vs. authentication gap.** AI code reliably adds authentication (`requireAuth` middleware) but frequently omits authorization (does this authenticated user have permission for this specific resource). Review every resource-access endpoint for ownership and role checks.
-
-**Mass assignment vulnerability.** LLMs generate `Object.assign(record, req.body)` or ORM `update(req.body)` patterns that allow callers to overwrite any field, including `role`, `isAdmin`, `ownerId`. Require an explicit allow-list of updatable fields.
+**Mass assignment vulnerability.** LLMs generate `Object.assign(record, req.body)` patterns allowing callers to overwrite any field, including `role`, `isAdmin`, `ownerId`. Require an explicit allow-list.
 
 ```typescript
 // BEFORE — mass assignment: caller can set any field including role
@@ -341,15 +299,15 @@ const { displayName, bio, avatarUrl } = req.body;
 await userRepo.update(req.params.id, { displayName, bio, avatarUrl });
 ```
 
-**Missing rate limiting on sensitive endpoints.** AI code generates auth endpoints without rate limiting. Every login, password-reset, OTP, and account-creation endpoint needs throttling.
+**Missing rate limiting.** Every login, password-reset, OTP, and account-creation endpoint needs throttling.
 
-**Insecure direct object references (IDOR).** AI code uses user-supplied IDs to look up records without confirming ownership. See Smell 3 for the pattern.
+**IDOR.** AI code uses user-supplied IDs to look up records without confirming ownership. See Smell 3.
 
-**Secret leakage via error messages.** AI error handling often logs full exception objects that may contain connection strings, API responses with keys, or internal path names. Sanitize before logging or returning.
+**Secret leakage via error messages.** AI error handling often logs full exception objects containing connection strings or API keys. Sanitize before logging or returning.
 
-**Input validation gaps.** AI code validates shape (type checking) but rarely validates semantics: numeric ranges, string length limits, allowed character sets, file type verification (not just extension). See `security-patterns-code-review` for complete input validation patterns.
+**Input validation gaps.** Validates shape (type checking) but rarely semantics: numeric ranges, string length limits, allowed character sets.
 
-**SSRF in URL-accepting parameters.** When AI code accepts a URL from user input and fetches it server-side, it rarely restricts to safe hosts. This enables Server-Side Request Forgery against internal services.
+**SSRF.** When AI code accepts a URL from user input and fetches it server-side, it rarely restricts to safe hosts.
 
 ```python
 # BEFORE — SSRF: user supplies any URL, server fetches it
@@ -379,11 +337,9 @@ def fetch_webhook_preview(url: str) -> dict:
 
 ## Review Checklist for AI-Generated Code
 
-Use this checklist when a PR is known or suspected to contain AI-generated code.
-
 **Before reading the code:**
-- [ ] Does the PR description explain *what* the code does and *why* those choices were made? AI-assisted PRs often have thin descriptions.
-- [ ] Is the code consistent with the project's existing idioms, or does it read like a different codebase?
+- [ ] Does the PR description explain *what* the code does and *why* those choices were made?
+- [ ] Is the code consistent with the project's existing idioms?
 
 **API verification:**
 - [ ] Every external library call verified against installed version docs

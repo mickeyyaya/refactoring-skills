@@ -7,15 +7,15 @@ description: Use when writing review comments to ensure feedback is actionable, 
 
 ## Overview
 
-The quality of a code review is not measured by how many issues you find — it is measured by how many issues get fixed with minimum friction. A poorly worded comment wastes time, creates defensiveness, and is frequently dismissed or misunderstood. Research on code review effectiveness consistently shows that vague comments are 3x more likely to be ignored or result in incorrect fixes than comments that state what is wrong, why it matters, and how to fix it.
+The quality of a code review is measured by how many issues get fixed with minimum friction. Vague comments are 3x more likely to be ignored or result in incorrect fixes than comments that state what is wrong, why it matters, and how to fix it.
 
-This skill focuses on the craft of the comment itself: structure, tone, framing, and completeness. Use this alongside `review-cheat-sheet` (what to look for) and `review-code-quality-process` (how to run a review end to end).
+Use this alongside `review-cheat-sheet` (what to look for) and `review-code-quality-process` (how to run a review end to end).
 
 ---
 
 ## Comment Templates by Severity
 
-Every comment should answer three questions: **What** is the problem, **Why** it matters, and **How** to fix it. The depth of each answer scales with severity.
+Every comment should answer three questions: **What** is the problem, **Why** it matters, and **How** to fix it. Depth scales with severity.
 
 ### CRITICAL — Must Fix Before Merge
 
@@ -104,8 +104,6 @@ nit: Early return here would reduce nesting by one level — personal preference
 
 ## Actionable vs Vague Comparison
 
-The most common cause of unhelpful comments is vagueness. The table below shows before (vague) and after (actionable) rewrites for frequent review findings.
-
 | Category | Vague (Before) | Actionable (After) |
 |----------|---------------|-------------------|
 | **Naming** | "This name is confusing." | "[LOW] `data` tells the reader nothing about the value's shape or purpose. Rename to `normalizedUserRecords` or `userMap` to match the transformation above." |
@@ -122,8 +120,6 @@ The most common cause of unhelpful comments is vagueness. The table below shows 
 
 ### Constructive vs Destructive Phrasing
 
-The same observation lands very differently depending on framing. Destructive phrasing triggers defensiveness and stalls the review. Constructive phrasing focuses on the code, not the author.
-
 | Destructive | Constructive |
 |-------------|--------------|
 | "You clearly didn't think about error handling." | "This path is missing error handling — see the [MEDIUM] comment above." |
@@ -134,31 +130,15 @@ The same observation lands very differently depending on framing. Destructive ph
 
 ### "I" vs "You" Framing
 
-Prefer "I" statements and observations about the code over statements about the author:
-
-- "I'd find it easier to follow if this were split into two functions" rather than "You should split this."
-- "I am not seeing a test for the null case" rather than "You forgot to test for null."
-- "This will throw if `config` is undefined" rather than "You broke the null check."
+Prefer "I" statements about the code over statements about the author: "I'd find it easier to follow if split" rather than "You should split this." "This will throw if `config` is undefined" rather than "You broke the null check."
 
 ### Questions vs Demands
 
-Use questions to surface intent when you are uncertain:
-
-- "Is there a reason this bypasses the cache on every call?" signals genuine curiosity and gives the author a chance to explain a constraint you may not be aware of.
-- "What happens here when `items` is empty?" is more collaborative than "Handle the empty case."
-
-Reserve declarative statements for clear defects where you are confident:
-
-- "[CRITICAL] This deletes all rows in the table when `userId` is null — add a guard clause before line 44."
+Use questions to surface intent when uncertain. "Is there a reason this bypasses the cache?" is more collaborative than a demand. Reserve declarative statements for clear defects: "[CRITICAL] This deletes all rows when `userId` is null — add a guard clause."
 
 ### Acknowledging Good Work
 
-Call out patterns done well, especially when the author went out of their way:
-
-- "Nice use of the Result type here — error handling is explicit and the caller is forced to handle both branches."
-- "Good catch adding the index on `created_at` — this query would have been a full table scan without it."
-
-Recognition is not padding. It signals what to repeat, builds trust, and makes the critical comments land better.
+Call out patterns done well — this signals what to repeat, builds trust, and makes critical comments land better. "Nice use of the Result type here." "Good catch adding the index."
 
 ---
 
@@ -166,41 +146,35 @@ Recognition is not padding. It signals what to repeat, builds trust, and makes t
 
 Use this checklist before posting any CRITICAL, HIGH, or MEDIUM comment.
 
-- [ ] **Identifies the issue specifically** — names the file, line range, variable, or function affected. Does not say "this function" without context.
-- [ ] **Explains the impact** — states what will go wrong (crash, data loss, security breach, maintenance burden) if the issue is not addressed. The author should not have to guess why this matters.
-- [ ] **Suggests a specific fix** — provides a concrete next step: a code snippet, a function to call, a pattern to apply, or a reference to a working example. "Refactor this" is not a fix. "Extract lines 40–55 to a function named `validatePayload()`" is a fix.
-- [ ] **Provides relevant context or a reference** — links to docs, a related skill, a prior incident, or a standard when the reasoning is non-obvious. This is especially important for security and performance findings.
-- [ ] **Scoped to one finding** — each comment addresses one issue. Stacking three unrelated observations in one comment makes it hard to track resolution.
+- [ ] **Be Specific** — names the file, line range, variable, or function affected
+- [ ] **Explains the impact** — states what will go wrong if the issue is not addressed
+- [ ] **Suggests a specific fix** — a code snippet, a function to call, or a reference to a working example. "Refactor this" is not a fix.
+- [ ] **Provides relevant context** — links to docs, a related skill, a prior incident, or a standard when the reasoning is non-obvious
+- [ ] **Scoped to one finding** — each comment addresses one issue
 
 ---
 
 ## When to Block vs Suggest
 
-Not every comment should hold up a merge. Overusing blocking comments trains authors to dismiss them.
-
 ### Block (Request Changes — Do Not Approve)
 
-Use a blocking comment when the issue is:
-
-- **Correctness** — the code will produce wrong results, throw unexpectedly, or corrupt data in a reachable path.
-- **Security** — any CRITICAL finding (injection, auth bypass, secret exposure, path traversal).
-- **Data integrity** — destructive operations without guards, missing transactions, irreversible migrations.
-- **CI is red** — do not approve on a failing build.
-- **Missing tests for new behavior** when the team has a test-required policy.
+- **Correctness** — wrong results, throws unexpectedly, or corrupts data
+- **Security** — any CRITICAL finding (injection, auth bypass, secret exposure, path traversal)
+- **Data integrity** — destructive operations without guards, missing transactions
+- **CI is red** — do not approve on a failing build
+- **Missing tests for new behavior** when the team has a test-required policy
 
 ### Suggest (Leave a Note — Do Not Block)
 
-Use a non-blocking comment when the issue is:
-
-- **Style or naming** — valid alternatives exist and the current choice is not wrong, just suboptimal.
-- **Performance** — not in a hot path, or the gain is marginal without profiling data to confirm.
-- **Refactoring** — the code works and the improvement is incremental. Consider filing a follow-up ticket instead of blocking.
-- **Preference** — you would have written it differently but both approaches are defensible.
-- **Nit-level** — explicitly label with "nit:" to signal it is optional.
+- **Style or naming** — valid alternatives exist and the current choice is not wrong
+- **Performance** — not in a hot path, or the gain is marginal without profiling data
+- **Refactoring** — the code works and the improvement is incremental
+- **Preference** — both approaches are defensible
+- **Nit-level** — explicitly label with "nit:"
 
 ### The Blocking Comment Test
 
-Before making a comment blocking, ask: "Would I be comfortable explaining to the team why I held up this merge for this reason?" If the answer is no, downgrade to a suggestion.
+Before making a comment blocking, ask: "Would I be comfortable explaining to the team why I held up this merge for this reason?" If no, downgrade to a suggestion.
 
 ---
 
@@ -208,19 +182,19 @@ Before making a comment blocking, ask: "Would I be comfortable explaining to the
 
 ### Bikeshedding
 
-Spending disproportionate comment energy on low-stakes cosmetic choices (variable names, brace placement, comment wording) while glossing over structural issues. If you find yourself writing five nit comments and no HIGH or CRITICAL comments on a PR that touches authentication logic, recalibrate.
+Spending disproportionate energy on low-stakes cosmetic choices while glossing over structural issues. If you find yourself writing five nit comments and no HIGH or CRITICAL comments on a PR that touches authentication logic, recalibrate.
 
 ### Drive-By Comments
 
-Leaving a vague observation ("might want to clean this up") with no actionable follow-through. Drive-by comments add noise to the review thread without helping the author. If something is worth flagging, it is worth explaining.
+Leaving a vague observation ("might want to clean this up") with no actionable follow-through. If something is worth flagging, it is worth explaining.
 
 ### Tone-Deaf Criticism
 
-Using the review to vent frustration about technical debt, past decisions, or author skill. The review thread is visible to the team. A comment like "this is a mess, as usual" damages psychological safety and reduces the likelihood that the author will ask for help in the future.
+Using the review to vent frustration. A comment like "this is a mess, as usual" damages psychological safety and reduces the likelihood that the author will ask for help in the future.
 
 ### Unnecessary Code Dumps
 
-Pasting a complete rewrite of a function to illustrate a point. This is rarely helpful because it forces the author to reconcile two complete implementations. Prefer: identify the problem, show the specific fix for the problematic lines, and let the author integrate it.
+Pasting a complete rewrite of a function. Prefer: identify the problem, show the specific fix for the problematic lines, and let the author integrate it.
 
 ### Comment Avalanche on a Risky PR
 
