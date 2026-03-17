@@ -49,7 +49,7 @@ Pipelines fail silently, duplicate records, or stall under backpressure — ofte
 **Python ETL skeleton (PII masking before load):**
 ```python
 import hashlib
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class RawRecord:
@@ -76,14 +76,11 @@ def etl_batch(records: list[RawRecord]) -> list[StagedRecord]:
 **SQL ELT (transform inside warehouse after raw load):**
 ```sql
 -- raw layer: loaded as-is from source
-CREATE TABLE raw.events AS
-SELECT * FROM external_stage;
+CREATE TABLE raw.events AS SELECT * FROM external_stage;
 
 -- transformation layer: computed from raw
 CREATE OR REPLACE TABLE analytics.daily_revenue AS
-SELECT
-    DATE(event_time) AS day,
-    SUM(amount)      AS revenue
+SELECT DATE(event_time) AS day, SUM(amount) AS revenue
 FROM raw.events
 WHERE event_type = 'purchase'
 GROUP BY 1;
@@ -366,13 +363,10 @@ async def consumer(queue: asyncio.Queue, sink) -> None:
 
 async def run_pipeline(source, sink) -> None:
     queue: asyncio.Queue = asyncio.Queue(maxsize=QUEUE_MAX)
-    await asyncio.gather(
-        producer(queue, source),
-        consumer(queue, sink),
-    )
+    await asyncio.gather(producer(queue, source), consumer(queue, sink))
 ```
 
-**Python — rate limiter for API ingestion:**
+**Python — token bucket rate limiter for API ingestion:**
 ```python
 import asyncio
 import time
@@ -394,34 +388,6 @@ class TokenBucketRateLimiter:
                 self._tokens -= 1
                 return
             await asyncio.sleep(1.0 / self._rate)
-```
-
-**TypeScript — semaphore to cap concurrent async tasks:**
-```typescript
-class Semaphore {
-  private queue: Array<() => void> = [];
-  constructor(private permits: number) {}
-  acquire(): Promise<void> {
-    if (this.permits > 0) { this.permits--; return Promise.resolve(); }
-    return new Promise(resolve => this.queue.push(resolve));
-  }
-  release(): void {
-    const next = this.queue.shift();
-    if (next) { next(); } else { this.permits++; }
-  }
-}
-
-async function processWithBackpressure(
-  items: string[],
-  maxConcurrent = 10,
-): Promise<void> {
-  const sem = new Semaphore(maxConcurrent);
-  await Promise.all(items.map(async item => {
-    await sem.acquire();
-    try { await processItem(item); }
-    finally { sem.release(); }
-  }));
-}
 ```
 
 ---
@@ -471,42 +437,11 @@ def parse_event(raw: dict) -> OrderEventV1:
 ```sql
 -- v1 contract: stable columns exposed to downstream consumers
 CREATE OR REPLACE VIEW contracts.orders_v1 AS
-SELECT
-    order_id,
-    amount,
-    currency,
-    status,
-    created_at
-FROM raw.orders;
+SELECT order_id, amount, currency, status, created_at FROM raw.orders;
 
 -- v2 contract: add new column without breaking v1 consumers
 CREATE OR REPLACE VIEW contracts.orders_v2 AS
-SELECT
-    order_id,
-    amount,
-    currency,
-    status,
-    created_at,
-    updated_at  -- new in v2
-FROM raw.orders;
-```
-
-**TypeScript — versioned event handler router:**
-```typescript
-type EventV1 = { version: 'v1'; orderId: string; amount: number };
-type EventV2 = { version: 'v2'; orderId: string; amount: number; currency: string };
-type OrderEvent = EventV1 | EventV2;
-
-function handleOrderEvent(event: OrderEvent): void {
-  switch (event.version) {
-    case 'v1': return handleV1(event);
-    case 'v2': return handleV2(event);
-    default: {
-      const _exhaustive: never = event;
-      throw new Error(`Unknown event version: ${JSON.stringify(_exhaustive)}`);
-    }
-  }
-}
+SELECT order_id, amount, currency, status, created_at, updated_at FROM raw.orders;
 ```
 
 ---
@@ -521,73 +456,6 @@ A DAG (Directed Acyclic Graph) makes task dependencies explicit, enabling parall
 - No task-level timeout — one hung task blocks the entire DAG
 - Retries configured globally with no backoff — flapping tasks hammer downstream systems
 - No alerting on SLA breach — pipeline is hours late before anyone notices
-
-**TypeScript — minimal DAG interface (orchestration contract):**
-```typescript
-interface TaskDefinition {
-  id: string;
-  dependsOn: string[];
-  timeoutMs: number;
-  maxRetries: number;
-  retryDelayMs: number;
-  run: () => Promise<void>;
-}
-
-interface DagResult {
-  taskId: string;
-  status: 'success' | 'failure' | 'skipped';
-  durationMs: number;
-  error?: string;
-}
-
-async function runDag(tasks: TaskDefinition[]): Promise<DagResult[]> {
-  const results = new Map<string, DagResult>();
-  const completed = new Set<string>();
-
-  async function runTask(task: TaskDefinition): Promise<void> {
-    // Wait for all dependencies
-    for (const dep of task.dependsOn) {
-      if (!completed.has(dep)) {
-        await new Promise<void>(resolve => {
-          const interval = setInterval(() => {
-            if (completed.has(dep)) { clearInterval(interval); resolve(); }
-          }, 100);
-        });
-      }
-      if (results.get(dep)?.status === 'failure') {
-        results.set(task.id, { taskId: task.id, status: 'skipped', durationMs: 0 });
-        completed.add(task.id);
-        return;
-      }
-    }
-
-    const start = Date.now();
-    for (let attempt = 1; attempt <= task.maxRetries + 1; attempt++) {
-      try {
-        await Promise.race([
-          task.run(),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('Task timeout')), task.timeoutMs)
-          ),
-        ]);
-        results.set(task.id, { taskId: task.id, status: 'success', durationMs: Date.now() - start });
-        completed.add(task.id);
-        return;
-      } catch (err) {
-        if (attempt > task.maxRetries) {
-          results.set(task.id, { taskId: task.id, status: 'failure', durationMs: Date.now() - start, error: String(err) });
-          completed.add(task.id);
-          return;
-        }
-        await new Promise(r => setTimeout(r, task.retryDelayMs * 2 ** (attempt - 1)));
-      }
-    }
-  }
-
-  await Promise.all(tasks.map(runTask));
-  return Array.from(results.values());
-}
-```
 
 **Python — Airflow-style DAG definition pattern:**
 ```python

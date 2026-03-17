@@ -49,31 +49,7 @@ Store every user-visible string outside source code in resource bundles (`.prope
 }
 ```
 
-**React component using `react-intl`:**
-```tsx
-import { FormattedMessage, useIntl } from 'react-intl';
-
-// BEFORE — hardcoded string, not translatable
-function Header({ name }: { name: string }) {
-  return <h1>Welcome back, {name}!</h1>;
-}
-
-// AFTER — externalized to translation file
-function Header({ name }: { name: string }) {
-  return (
-    <h1>
-      <FormattedMessage id="welcome.greeting" values={{ name }} />
-    </h1>
-  );
-}
-
-// Programmatic access via hook
-function PageTitle({ isAdmin }: { isAdmin: boolean }) {
-  const intl = useIntl();
-  const title = intl.formatMessage({ id: isAdmin ? 'nav.admin' : 'nav.dashboard' });
-  return <title>{title}</title>;
-}
-```
+**React component using `react-intl` — replace hardcoded JSX strings with `<FormattedMessage id="..." values={...} />` or `intl.formatMessage({ id: ... }, values)`.**
 
 **Resource bundle pattern (Node.js / `i18next`):**
 ```typescript
@@ -133,14 +109,7 @@ const text = intl.formatMessage(
 // de-DE: "3 Artikel in Ihrem Warenkorb"
 ```
 
-**React `FormattedMessage` with select for gender:**
-```tsx
-<FormattedMessage
-  id="reply.notification"
-  values={{ gender: user.gender, name: user.displayName }}
-/>
-// Translation: "{gender, select, male {He} female {She} other {They}} replied to your post."
-```
+// In React: `<FormattedMessage id="reply.notification" values={{ gender: user.gender, name: user.displayName }} />` — translation handles select logic, no JSX branching needed.
 
 ---
 
@@ -177,17 +146,7 @@ function getItemLabel(count: number): string {
 }
 ```
 
-**React with CLDR-compliant formatting:**
-```tsx
-// The intl library handles CLDR plural selection based on locale
-function SearchResultCount({ count }: { count: number }) {
-  return (
-    <span>
-      <FormattedMessage id="search.results" values={{ count }} />
-    </span>
-  );
-}
-```
+// In React: `<FormattedMessage id="search.results" values={{ count }} />` — the intl library resolves the correct CLDR plural category for the active locale automatically.
 
 Cross-reference: `data-validation-schema-patterns` — validating locale codes against CLDR language tag schemas.
 
@@ -206,51 +165,27 @@ Always use `Intl.DateTimeFormat` with an explicit locale and timezone. Never rel
 **TypeScript date formatting utilities:**
 ```typescript
 // BEFORE — locale and timezone ignored
-function formatDate(date: Date): string {
-  return date.toLocaleDateString(); // uses runtime system locale
-}
+// return date.toLocaleDateString();
 
 // AFTER — explicit locale and timezone
 function formatDate(date: Date, locale: string, timeZone: string): string {
   return new Intl.DateTimeFormat(locale, {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    timeZone,
+    year: 'numeric', month: 'long', day: 'numeric', timeZone,
   }).format(date);
 }
 
 function formatDateTime(date: Date, locale: string, timeZone: string): string {
   return new Intl.DateTimeFormat(locale, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-    timeZone,
+    dateStyle: 'medium', timeStyle: 'short', timeZone,
   }).format(date);
 }
 
-// Usage
 formatDate(new Date('2024-03-15'), 'en-US', 'America/New_York');  // "March 15, 2024"
 formatDate(new Date('2024-03-15'), 'de-DE', 'Europe/Berlin');     // "15. März 2024"
 formatDate(new Date('2024-03-15'), 'ja-JP', 'Asia/Tokyo');        // "2024年3月15日"
 ```
 
-**React — store timezone in user context:**
-```tsx
-interface UserLocaleContext {
-  locale: string;
-  timeZone: string;
-}
-
-function EventTime({ date, ctx }: { date: Date; ctx: UserLocaleContext }) {
-  const formatted = new Intl.DateTimeFormat(ctx.locale, {
-    dateStyle: 'short',
-    timeStyle: 'short',
-    timeZone: ctx.timeZone,
-  }).format(date);
-  // Provide machine-readable datetime for screen readers and SEO
-  return <time dateTime={date.toISOString()}>{formatted}</time>;
-}
-```
+// In React: wrap `Intl.DateTimeFormat(ctx.locale, { ..., timeZone: ctx.timeZone }).format(date)` in a `<time dateTime={date.toISOString()}>` element for machine-readable output.
 
 **Relative time with `Intl.RelativeTimeFormat`:**
 ```typescript
@@ -280,16 +215,10 @@ Use `Intl.NumberFormat` for all numeric display. Decimal separators, thousands g
 **TypeScript number formatting:**
 ```typescript
 // BEFORE — US-only formatting, breaks for European locales
-function formatPrice(amount: number): string {
-  return `$${amount.toFixed(2)}`; // "1234.56" in de-DE should be "1.234,56"
-}
+// return `$${amount.toFixed(2)}`;
 
 // AFTER — locale-aware currency formatting
-function formatCurrency(
-  amount: number,
-  currency: string,
-  locale: string
-): string {
+function formatCurrency(amount: number, currency: string, locale: string): string {
   return new Intl.NumberFormat(locale, {
     style: 'currency',
     currency,
@@ -310,17 +239,7 @@ new Intl.NumberFormat('en-US', { style: 'percent' }).format(0.762);  // "76%"
 new Intl.NumberFormat('ar-EG', { style: 'percent' }).format(0.762);  // "٧٦٪"
 ```
 
-**React currency component:**
-```tsx
-function Price({ amount, currency }: { amount: number; currency: string }) {
-  const { locale } = useLocale(); // from context
-  const formatted = new Intl.NumberFormat(locale, {
-    style: 'currency',
-    currency,
-  }).format(amount);
-  return <span className="price">{formatted}</span>;
-}
-```
+// In React: read `locale` from context and call `new Intl.NumberFormat(locale, { style: 'currency', currency }).format(amount)` directly in the render — no wrapper component needed.
 
 ---
 
@@ -415,7 +334,7 @@ JavaScript's default `Array.sort()` uses Unicode code point order, which is inco
 **TypeScript collation utilities:**
 ```typescript
 // BEFORE — code point order, wrong for most languages
-const sorted = names.sort();
+// const sorted = names.sort();
 
 // AFTER — locale-correct collation
 function sortByName(items: string[], locale: string): string[] {
@@ -438,34 +357,7 @@ const numericCollator = new Intl.Collator('en-US', { numeric: true });
 // ['item1', 'item2', 'item10']
 ```
 
-**React table with locale-correct sorting:**
-```tsx
-function SortableNameList({
-  users,
-  locale,
-}: {
-  users: User[];
-  locale: string;
-}) {
-  const collator = useMemo(
-    () => new Intl.Collator(locale, { sensitivity: 'base' }),
-    [locale]
-  );
-
-  const sorted = useMemo(
-    () => [...users].sort((a, b) => collator.compare(a.name, b.name)),
-    [users, collator]
-  );
-
-  return (
-    <ul>
-      {sorted.map((user) => (
-        <li key={user.id}>{user.name}</li>
-      ))}
-    </ul>
-  );
-}
-```
+// In React: memoize the collator with `useMemo(() => new Intl.Collator(locale, { sensitivity: 'base' }), [locale])` and sort with `useMemo` on the data dependency — avoids recreating the collator on every render.
 
 ---
 
@@ -507,7 +399,6 @@ function t(key: TranslationKey, values?: Record<string, string | number>): strin
   return intl.formatMessage({ id: key }, values);
 }
 
-// TypeScript error if key doesn't exist in en.json
 t('checkout.payment.submit_button', { formattedAmount: '$42.00' }); // OK
 t('checkout.nonexistent_key'); // TypeScript compile error
 ```
@@ -551,14 +442,9 @@ function pseudoLocalize(text: string): string {
     a: 'â', e: 'ê', i: 'î', o: 'ô', u: 'û',
     A: 'Â', E: 'Ê', I: 'Î', O: 'Ô', U: 'Û',
   };
-  // Add brackets to show string boundaries, expand for string expansion testing
-  const transformed = text
-    .split('')
-    .map((c) => charMap[c] ?? c)
-    .join('');
+  const transformed = text.split('').map((c) => charMap[c] ?? c).join('');
   return `[!! ${transformed} !!]`; // brackets reveal untranslated strings
 }
-
 // "Hello, world!" → "[!! Hêllô, wôrld! !!]"
 ```
 
@@ -568,7 +454,6 @@ function simulateStringExpansion(text: string, factor = 1.4): string {
   const padding = 'x'.repeat(Math.ceil(text.length * (factor - 1)));
   return `${text}${padding}`;
 }
-
 // Use in layout tests to verify UI doesn't overflow or truncate
 ```
 
@@ -592,31 +477,15 @@ describe('translation completeness', () => {
 });
 ```
 
-**React component i18n test:**
+**Component i18n test — render with target locale and assert formatted output:**
 ```tsx
-import { render, screen } from '@testing-library/react';
-import { IntlProvider } from 'react-intl';
-import de from '../locales/de.json';
-import { ProductCard } from './ProductCard';
-
 test('renders product price in German locale', () => {
   render(
     <IntlProvider locale="de-DE" messages={de}>
       <ProductCard price={29.99} currency="EUR" />
     </IntlProvider>
   );
-  // German locale formats as "29,99 €"
   expect(screen.getByText('29,99 €')).toBeInTheDocument();
-});
-
-test('renders plural correctly for Arabic locale', () => {
-  // Test that CLDR plural rules are applied, not binary English logic
-  render(
-    <IntlProvider locale="ar" messages={ar}>
-      <ResultCount count={3} />
-    </IntlProvider>
-  );
-  expect(screen.getByRole('status')).toHaveTextContent('٣ نتائج');
 });
 ```
 

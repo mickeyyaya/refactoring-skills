@@ -79,36 +79,7 @@ export const { addItem, removeItem, clearCart } = cartSlice.actions;
 // store.dispatch(addItem({ id: 'abc', name: 'Widget', qty: 1, price: 9.99 }));
 ```
 
-**Plain reducer without RTK — pure function, no mutation:**
-```typescript
-type Action =
-  | { type: 'ADD_ITEM'; payload: CartItem }
-  | { type: 'REMOVE_ITEM'; id: string }
-  | { type: 'CLEAR_CART' };
-
-function cartReducer(state: CartState = initialState, action: Action): CartState {
-  switch (action.type) {
-    case 'ADD_ITEM': {
-      const existing = state.items.find(i => i.id === action.payload.id);
-      if (existing) {
-        return {
-          ...state,
-          items: state.items.map(i =>
-            i.id === action.payload.id ? { ...i, qty: i.qty + action.payload.qty } : i
-          ),
-        };
-      }
-      return { ...state, items: [...state.items, action.payload] };
-    }
-    case 'REMOVE_ITEM':
-      return { ...state, items: state.items.filter(i => i.id !== action.id) };
-    case 'CLEAR_CART':
-      return { ...state, items: [] };
-    default:
-      return state;
-  }
-}
-```
+// Plain reducers without RTK follow the same pattern — pure function, spread to return new state, no mutation.
 
 Cross-reference: `design-patterns-behavioral` — Command pattern for action objects; Observer for store subscriptions.
 
@@ -155,7 +126,6 @@ function useUpdateUser() {
         body: JSON.stringify({ name }),
       }).then(r => r.json()),
     onSuccess: (_, { id }) => {
-      // Invalidate so the query refetches fresh data
       queryClient.invalidateQueries({ queryKey: ['users', id] });
     },
   });
@@ -180,25 +150,7 @@ function UserProfile({ userId }: { userId: string }) {
 }
 ```
 
-**SWR equivalent — simpler for read-heavy cases:**
-```typescript
-import useSWR, { mutate } from 'swr';
-
-const fetcher = (url: string) => fetch(url).then(r => r.json());
-
-function useUser(id: string) {
-  return useSWR<User>(`/api/users/${id}`, fetcher, {
-    dedupingInterval: 2000,
-    revalidateOnFocus: true,
-  });
-}
-
-// Revalidate after mutation
-async function updateUserName(id: string, name: string) {
-  await fetch(`/api/users/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) });
-  mutate(`/api/users/${id}`);  // trigger revalidation
-}
-```
+// SWR equivalent: `useSWR<User>(url, fetcher, { dedupingInterval: 2000 })` — after mutation call `mutate(url)` to trigger revalidation. Simpler API, same caching guarantees.
 
 ---
 
@@ -224,66 +176,30 @@ function useToggleTodo() {
       fetch(`/api/todos/${id}/toggle`, { method: 'POST' }).then(r => r.json()),
 
     onMutate: async (id: string) => {
-      // Cancel in-flight refetches that would overwrite the optimistic update
       await queryClient.cancelQueries({ queryKey: ['todos'] });
-
-      // Snapshot the previous value for rollback
       const previousTodos = queryClient.getQueryData<Todo[]>(['todos']);
 
-      // Optimistically update the cache
       queryClient.setQueryData<Todo[]>(['todos'], (old = []) =>
         old.map(t => t.id === id ? { ...t, completed: !t.completed } : t)
       );
 
-      return { previousTodos };  // context passed to onError
+      return { previousTodos };
     },
 
     onError: (_err, _id, context) => {
-      // Revert to the snapshot on failure
       if (context?.previousTodos) {
         queryClient.setQueryData(['todos'], context.previousTodos);
       }
     },
 
     onSettled: () => {
-      // Sync with the server regardless of success or failure
       queryClient.invalidateQueries({ queryKey: ['todos'] });
     },
   });
 }
 ```
 
-**Zustand — optimistic update with manual rollback:**
-```typescript
-import { create } from 'zustand';
-
-interface TodoStore {
-  todos: Todo[];
-  toggleTodo: (id: string) => Promise<void>;
-}
-
-const useTodoStore = create<TodoStore>((set, get) => ({
-  todos: [],
-  toggleTodo: async (id: string) => {
-    const snapshot = get().todos;
-
-    // Apply optimistic update
-    set(state => ({
-      todos: state.todos.map(t =>
-        t.id === id ? { ...t, completed: !t.completed } : t
-      ),
-    }));
-
-    try {
-      await fetch(`/api/todos/${id}/toggle`, { method: 'POST' });
-    } catch (err) {
-      // Rollback on failure
-      set({ todos: snapshot });
-      throw err;  // surface error to calling component
-    }
-  },
-}));
-```
+// Zustand equivalent: snapshot `get().todos` before `set(...)`, catch the fetch error, call `set({ todos: snapshot })` to rollback, then rethrow to surface the error to the caller.
 
 ---
 
@@ -297,19 +213,12 @@ Finite state machines make every valid state and transition explicit, eliminatin
 - No handling of concurrent requests — two fetches in flight, second result overwrites first
 - Deeply nested `if/else` chains that represent implicit state logic
 
-**Impossible state example — replace boolean flags with an explicit machine:**
+**Replace boolean flag explosion with an explicit union type:**
 ```typescript
-// BEFORE — 4 booleans = 16 combinations, most are impossible
-interface BadState {
-  isIdle: boolean;
-  isLoading: boolean;
-  isSuccess: boolean;
-  isError: boolean;
-  data: User | null;
-  error: Error | null;
-}
+// WRONG — 4 booleans = 16 combinations, most are impossible
+// interface BadState { isIdle: boolean; isLoading: boolean; isSuccess: boolean; isError: boolean; }
 
-// AFTER — exactly 4 valid states, each with typed context
+// CORRECT — exactly 4 valid states, each with typed context
 type FetchState =
   | { status: 'idle' }
   | { status: 'loading' }
@@ -354,15 +263,7 @@ const fetchUserMachine = createMachine({
   },
 });
 
-// React hook wrapping the XState actor
-import { useSelector } from '@xstate/react';
-
-function useUserMachine(userId: string) {
-  const actorRef = useActorRef(fetchUserMachine);
-  const state = useSelector(actorRef, s => s);
-  useEffect(() => { actorRef.send({ type: 'FETCH', userId }); }, [userId]);
-  return state;
-}
+// React: `useActorRef(fetchUserMachine)` + `useSelector(actorRef, s => s)` — send `{ type: 'FETCH', userId }` in a `useEffect` to start the machine.
 ```
 
 Cross-reference: `design-patterns-behavioral` — State pattern for object-oriented finite state modeling.
@@ -497,29 +398,10 @@ app.use(session({
 }));
 ```
 
-**Database-backed sessions — for teams without Redis:**
-```typescript
-import session from 'express-session';
-import pgSession from 'connect-pg-simple';
-
-const PgStore = pgSession(session);
-
-app.use(session({
-  store: new PgStore({
-    conString: process.env.DATABASE_URL,
-    tableName: 'user_sessions',
-    pruneSessionInterval: 60 * 15, // prune expired sessions every 15 min
-  }),
-  secret: process.env.SESSION_SECRET!,
-  resave: false,
-  saveUninitialized: false,
-  cookie: { httpOnly: true, secure: true, sameSite: 'strict' },
-}));
-```
+// Database-backed alternative: `connect-pg-simple` or `connect-mongo` — same `session({ store: new PgStore({ conString, tableName, pruneSessionInterval }) })` pattern. Set `pruneSessionInterval` to auto-expire orphaned sessions.
 
 **Session data contract — store only the minimum:**
 ```typescript
-// Declare the session shape — TypeScript augmentation
 declare module 'express-session' {
   interface SessionData {
     userId: string;
@@ -550,43 +432,25 @@ Derived state is computed from existing state rather than stored separately. Sto
 import { createSelector } from 'reselect';
 import { RootState } from './store';
 
-// Base selectors — access raw state slices
 const selectCartItems = (state: RootState) => state.cart.items;
 const selectTaxRate = (state: RootState) => state.settings.taxRate;
 
-// Derived selector — only recomputes when items or taxRate changes
+// Only recomputes when items or taxRate changes
 export const selectCartSummary = createSelector(
   [selectCartItems, selectTaxRate],
   (items, taxRate) => {
     const subtotal = items.reduce((sum, item) => sum + item.price * item.qty, 0);
     const tax = subtotal * taxRate;
-    const total = subtotal + tax;
-    const itemCount = items.reduce((sum, item) => sum + item.qty, 0);
-    return { subtotal, tax, total, itemCount };
+    return { subtotal, tax, total: subtotal + tax, itemCount: items.reduce((s, i) => s + i.qty, 0) };
   }
 );
-
-// React component — only re-renders when summary values actually change
-function CartSummary() {
-  const { subtotal, tax, total, itemCount } = useSelector(selectCartSummary);
-  return (
-    <div>
-      <p>Items: {itemCount}</p>
-      <p>Subtotal: ${subtotal.toFixed(2)}</p>
-      <p>Tax: ${tax.toFixed(2)}</p>
-      <p>Total: ${total.toFixed(2)}</p>
-    </div>
-  );
-}
+// Component: `const { subtotal, tax, total, itemCount } = useSelector(selectCartSummary);` — only re-renders when summary values actually change.
 ```
 
 **React useMemo for local derived state:**
 ```typescript
 function ProductList({ products, searchTerm, category }: Props) {
-  // WRONG — runs filter/sort on every render, even when only an unrelated parent state changes
-  // const filtered = products.filter(p => p.category === category && p.name.includes(searchTerm));
-
-  // CORRECT — only recomputes when products, searchTerm, or category changes
+  // Only recomputes when products, searchTerm, or category changes
   const filtered = useMemo(
     () => products
       .filter(p => p.category === category && p.name.toLowerCase().includes(searchTerm.toLowerCase()))
@@ -615,10 +479,10 @@ Cross-reference: `concurrency-patterns` — memoization strategies and cache inv
 | **No State Reset on Logout** | Cached user data persists after logout — visible to the next user on a shared device | Dispatch a `RESET` action or call `queryClient.clear()` on logout |
 | **Action Spam** | Dispatching multiple actions that each trigger a re-render, when one batched action would suffice | Batch related mutations into a single action |
 
-**Global state abuse — moved to local state:**
+**Global state abuse — use local state for component-scoped concerns:**
 ```typescript
 // WRONG — tooltip visibility does not need to be in Redux
-dispatch(setTooltipVisible({ id: 'help', visible: true }));
+// dispatch(setTooltipVisible({ id: 'help', visible: true }));
 
 // CORRECT — local state for local concerns
 function HelpButton() {
@@ -631,25 +495,15 @@ function HelpButton() {
 }
 ```
 
-**Prop drilling — replaced with context:**
+**Prop drilling — replace with context; consumers read directly:**
 ```typescript
-// WRONG — theme passed through 4 intermediary components
-<App theme={theme}>
-  <Layout theme={theme}>
-    <Sidebar theme={theme}>
-      <NavItem theme={theme} />
-    </Sidebar>
-  </Layout>
-</App>
-
-// CORRECT — context eliminates drilling; consumers read directly
 const ThemeContext = createContext<Theme>({ mode: 'light' });
 
 function App() {
   const [theme] = useState<Theme>({ mode: 'light' });
   return (
     <ThemeContext.Provider value={theme}>
-      <Layout />
+      <Layout />  {/* no theme prop needed on intermediaries */}
     </ThemeContext.Provider>
   );
 }
@@ -673,7 +527,7 @@ function rootReducer(state: RootState | undefined, action: Action): RootState {
 // TanStack Query — clear all cached server state on logout
 async function logout() {
   await fetch('/api/auth/logout', { method: 'POST' });
-  queryClient.clear();          // wipe all cached queries
+  queryClient.clear();
   navigate('/login');
 }
 ```

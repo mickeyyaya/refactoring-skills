@@ -32,9 +32,9 @@ Misconfigured probes cause unnecessary restarts. Missing resource limits allow n
 Kubernetes uses three probe types to manage container lifecycle. Choosing the wrong thresholds is the most common source of unnecessary restarts and traffic drops.
 
 **Probe Types:**
-- **livenessProbe** — kubelet kills and restarts the container if this fails. Use only for truly unrecoverable states (deadlock, corrupted internal state). **Do not** point it at an external dependency.
-- **readinessProbe** — removes the pod from Service endpoints if this fails. Use for "am I ready to serve traffic?" checks including upstream dependencies.
-- **startupProbe** — disables liveness and readiness probes until it succeeds. Required for slow-starting containers (JVM warmup, DB migration, large model loading) to prevent premature restarts.
+- **livenessProbe** — restarts container on failure. Internal state only; never check external deps.
+- **readinessProbe** — removes pod from Service endpoints. Check all deps needed to serve traffic.
+- **startupProbe** — disables liveness/readiness until it passes. Required for slow-starting containers.
 
 **Red Flags:**
 - No `readinessProbe` — pod receives traffic before it is ready, causing request errors at deploy time
@@ -96,7 +96,7 @@ app.get('/healthz/live', (_req, res) => {
 // Readiness: checks all dependencies needed to serve traffic
 app.get('/healthz/ready', async (_req, res) => {
   try {
-    await db.ping();  // verify DB is reachable
+    await db.ping();
     res.status(200).json({ status: 'ready' });
   } catch (err) {
     res.status(503).json({ status: 'not ready', reason: 'db unreachable' });
@@ -113,42 +113,6 @@ app.get('/healthz/startup', (_req, res) => {
 });
 ```
 
-**Go — health handler:**
-```go
-package main
-
-import (
-    "encoding/json"
-    "net/http"
-    "sync/atomic"
-)
-
-var ready atomic.Bool
-
-func livenessHandler(w http.ResponseWriter, _ *http.Request) {
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(map[string]string{"status": "alive"})
-}
-
-func readinessHandler(w http.ResponseWriter, r *http.Request) {
-    if !ready.Load() {
-        w.WriteHeader(http.StatusServiceUnavailable)
-        json.NewEncoder(w).Encode(map[string]string{"status": "not ready"})
-        return
-    }
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(map[string]string{"status": "ready"})
-}
-
-func main() {
-    http.HandleFunc("/healthz/live", livenessHandler)
-    http.HandleFunc("/healthz/ready", readinessHandler)
-    // ... application init
-    ready.Store(true)
-    http.ListenAndServe(":8080", nil)
-}
-```
-
 ---
 
 ### 2. Resource Requests vs Limits
@@ -156,8 +120,8 @@ func main() {
 Requests and limits serve different purposes. Conflating them leads to either poor bin-packing or runtime instability.
 
 **Concepts:**
-- **requests** — used by the scheduler to find a node with enough available capacity. The container is guaranteed at least this much.
-- **limits** — enforced at runtime by the kernel cgroup. CPU limit causes throttling; memory limit causes OOMKill.
+- **requests** — used by the scheduler; container is guaranteed at least this much.
+- **limits** — enforced by kernel cgroup at runtime. CPU limit causes throttling; memory limit causes OOMKill.
 
 **Red Flags:**
 - No `requests` set — scheduler places pods randomly; node overcommit causes evictions
@@ -190,9 +154,7 @@ Cross-reference: `observability-patterns` — set up memory usage alerts at 80% 
 
 ### 3. Autoscaling: HPA, KEDA, and VPA
 
-**HPA (Horizontal Pod Autoscaler)** scales replica count based on metrics (CPU, memory, custom).
-**KEDA** extends HPA with event-driven triggers (queue depth, Kafka lag, cron schedule).
-**VPA (Vertical Pod Autoscaler)** adjusts resource requests and limits per pod.
+**HPA** scales replica count on CPU/memory/custom metrics. **KEDA** extends HPA with event-driven triggers (queue depth, Kafka lag, cron). **VPA** adjusts resource requests/limits per pod.
 
 **Red Flags:**
 - Static `replicas` in production Deployment manifest — prevents HPA from taking effect (HPA will override, but static value causes confusion)
@@ -265,7 +227,7 @@ spec:
 
 ### 4. PodDisruptionBudget and Graceful Shutdown
 
-Voluntary disruptions (node drain, rolling updates) must not drop in-flight requests. Two mechanisms protect availability: PDB prevents too many pods going down at once; SIGTERM handling drains connections before exit.
+Voluntary disruptions must not drop in-flight requests. PDB prevents too many pods going down at once; SIGTERM handling drains connections before exit.
 
 **Red Flags:**
 - No `PodDisruptionBudget` on critical Deployments — `kubectl drain` removes all pods simultaneously
@@ -302,73 +264,19 @@ import http from 'http';
 
 const server = http.createServer(app);
 
-function shutdown(signal: string): void {
-  console.log(`Received ${signal}, starting graceful shutdown`);
-
-  server.close((err) => {
-    if (err) {
-      console.error('Error during shutdown:', err);
-      process.exit(1);
-    }
-    // Close database connections, flush logs, etc.
-    db.close().then(() => {
-      console.log('Graceful shutdown complete');
-      process.exit(0);
-    }).catch((dbErr) => {
-      console.error('DB close failed:', dbErr);
-      process.exit(1);
-    });
+function shutdown(): void {
+  server.close(async (err) => {
+    if (err) { console.error('Shutdown error:', err); process.exit(1); }
+    try { await db.close(); process.exit(0); }
+    catch (dbErr) { console.error('DB close failed:', dbErr); process.exit(1); }
   });
-
-  // Force exit if graceful shutdown takes too long
-  setTimeout(() => {
-    console.error('Shutdown timeout exceeded, forcing exit');
-    process.exit(1);
-  }, 50_000).unref();  // slightly less than terminationGracePeriodSeconds
+  // Force exit if graceful shutdown exceeds terminationGracePeriodSeconds
+  setTimeout(() => process.exit(1), 50_000).unref();
 }
 
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT',  () => shutdown('SIGINT'));
-
-server.listen(8080, () => console.log('Listening on :8080'));
-```
-
-**Go — graceful shutdown:**
-```go
-package main
-
-import (
-    "context"
-    "log"
-    "net/http"
-    "os"
-    "os/signal"
-    "syscall"
-    "time"
-)
-
-func main() {
-    srv := &http.Server{Addr: ":8080", Handler: buildRouter()}
-
-    go func() {
-        if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-            log.Fatalf("ListenAndServe: %v", err)
-        }
-    }()
-
-    quit := make(chan os.Signal, 1)
-    signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
-    <-quit
-    log.Println("SIGTERM received, shutting down gracefully")
-
-    ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-    defer cancel()
-
-    if err := srv.Shutdown(ctx); err != nil {
-        log.Fatalf("Graceful shutdown failed: %v", err)
-    }
-    log.Println("Server exited cleanly")
-}
+process.on('SIGTERM', shutdown);
+process.on('SIGINT',  shutdown);
+server.listen(8080);
 ```
 
 Cross-reference: `cicd-pipeline-patterns` — rolling update strategy and `maxUnavailable`/`maxSurge` settings pair directly with PDB to control blast radius during deploys.
@@ -377,7 +285,7 @@ Cross-reference: `cicd-pipeline-patterns` — rolling update strategy and `maxUn
 
 ### 5. Workload RBAC Isolation
 
-Every pod runs as a ServiceAccount. Without explicit restriction, pods can access the Kubernetes API with broad default permissions. NetworkPolicy further limits pod-to-pod traffic.
+Every pod runs as a ServiceAccount. Without explicit restriction, pods access the Kubernetes API with broad default permissions. NetworkPolicy limits pod-to-pod traffic.
 
 **Red Flags:**
 - Pod uses `default` ServiceAccount — shares permissions with every other workload in the namespace
@@ -421,17 +329,7 @@ roleRef:
   kind: Role
   apiGroup: rbac.authorization.k8s.io
   name: api-server-role
----
-# Deployment references the dedicated ServiceAccount
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: api-server
-  namespace: production
-spec:
-  template:
-    spec:
-      serviceAccountName: api-server-sa
+# In Deployment: spec.template.spec.serviceAccountName: api-server-sa
 ```
 
 **YAML — NetworkPolicy for micro-segmentation:**
@@ -481,7 +379,7 @@ Cross-reference: `security-patterns-code-review` — token scoping, short-lived 
 
 ### 6. Configuration Injection
 
-Secrets must never be baked into container images. ConfigMaps hold non-sensitive configuration; Secrets hold credentials. Both are injected at runtime through environment variables or volume mounts.
+Secrets must never be baked into images. ConfigMaps hold non-sensitive config; Secrets hold credentials. Both are injected at runtime via env vars or volume mounts.
 
 **Red Flags:**
 - Secret value hardcoded in Dockerfile `ENV` or `ARG` — visible in image layers and registry
@@ -539,25 +437,7 @@ spec:
           # Volume mounts auto-update when Secret is rotated; env vars do NOT
 ```
 
-**Dockerfile — no baked secrets:**
-```dockerfile
-FROM node:20-alpine AS builder
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --omit=dev
-COPY src/ ./src/
-RUN npm run build
-
-FROM node:20-alpine
-WORKDIR /app
-# Copy only built artifacts — no source, no .env files
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules ./node_modules
-# NO ENV with secret values here
-USER node   # non-root user
-EXPOSE 8080
-ENTRYPOINT ["node", "dist/index.js"]
-```
+Note: never use `ENV` with secret values in a Dockerfile — secrets must arrive at runtime via volume mounts or a secrets manager. See Fat Images below for a correct multi-stage Dockerfile.
 
 Cross-reference: `security-patterns-code-review` — secret scanning, external-secrets operator integration, and vault agent sidecar patterns.
 
@@ -566,16 +446,9 @@ Cross-reference: `security-patterns-code-review` — secret scanning, external-s
 ### 7. Container Anti-Patterns
 
 **CrashLoopBackOff**
-The container crashes repeatedly; kubelet applies exponential backoff before restarting. Root causes:
-- Application throws an unhandled exception on startup
-- Missing required environment variable or secret
-- Liveness probe too aggressive before the app is fully started
-- Entrypoint script exits with code 0 (container completes instead of staying alive)
-
-Diagnosis:
+Container crashes repeatedly; kubelet applies exponential backoff. Common causes: unhandled startup exception, missing env var/secret, liveness probe too aggressive, entrypoint exits with code 0.
 ```bash
-kubectl logs <pod> --previous          # logs from the crashed container
-kubectl describe pod <pod>             # exit code and reason
+kubectl logs <pod> --previous && kubectl describe pod <pod>
 kubectl get events --sort-by=.lastTimestamp
 ```
 
@@ -597,15 +470,8 @@ Pod created but no node can accept it. Root causes:
 **Fat Images**
 Images with unnecessary layers, build tools, or full OS. Consequences: slow pull times, large attack surface, more CVEs.
 
-Anti-patterns and fixes:
+Multi-stage build (correct pattern):
 ```dockerfile
-# WRONG: single-stage, includes dev dependencies and build tools
-FROM node:20
-COPY . .
-RUN npm install
-RUN npm run build
-
-# CORRECT: multi-stage, final image is minimal
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
