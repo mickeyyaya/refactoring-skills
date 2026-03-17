@@ -511,13 +511,13 @@ public class RequestCounterService {
 | 1 — Detect | Match code patterns to known vulnerability / anti-pattern | `security-patterns-code-review`, `go-review-patterns`, `performance-anti-patterns`, `ai-generated-code-review`, `typescript-review-patterns`, `java-review-patterns`, `concurrency-patterns` |
 | 2 — Calibrate | Assign C1–C4 confidence, assign severity, check false positives | `review-accuracy-calibration` |
 | 3 — Write | Apply CRITICAL / HIGH / MEDIUM / NIT template | `review-feedback-quality` |
-| 4 — Decide | Block (CRITICAL/HIGH), suggest (MEDIUM), nit (NIT), approve | `review-workflow`, `review-efficiency-patterns` |
+| 4 — Decide | Block (CRITICAL/HIGH), suggest (MEDIUM), nit (NIT), approve | `pr-review-workflow`, `review-efficiency-patterns` |
 
 ## Cross-References
 
 | Topic | Skill |
 |-------|-------|
-| Full review workflow end-to-end | `review-workflow` |
+| Full review workflow end-to-end | `pr-review-workflow` |
 | Severity calibration and false positive reduction | `review-accuracy-calibration` |
 | Comment templates and tone | `review-feedback-quality` |
 | Time allocation and stopping signals | `review-efficiency-patterns` |
