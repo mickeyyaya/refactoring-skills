@@ -1,6 +1,6 @@
 ---
 name: skill-catalog
-description: Master navigation and dispatch index for all 67 skills — invoke this skill first when unsure which skill covers your task. Maps common scenarios, tasks, and questions to the right skill via a quick dispatch table, domain category index, and decision FAQ.
+description: Master navigation and dispatch index for all 70 skills — invoke this skill first when unsure which skill covers your task. Maps common scenarios, tasks, and questions to the right skill via a quick dispatch table, domain category index, and decision FAQ.
 ---
 
 # Skill Catalog — Navigation & Dispatch Index
@@ -91,12 +91,15 @@ Use this table for fast lookup. Find the scenario closest to your current task, 
 | Review Rust code: ownership, borrowing, unsafe blocks, lifetimes | `rust-review-patterns` |
 | Review Java code: null safety, Stream API, concurrency, generics | `java-review-patterns` |
 | Review C++ code: RAII, undefined behavior, templates, move semantics | `cpp-review-patterns` |
+| End-to-end PR review orchestration, full workflow from load to verdict | `pr-review-workflow` |
+| Measure review effectiveness: defect escape rate, cycle time, comment resolution | `review-metrics` |
+| End-to-end review diagnostic walkthroughs across security, performance, concurrency | `review-walkthroughs` |
 
 ---
 
 ### Category Index by Domain
 
-The 67 skills are organized into 15 domains. Use this index when you want to explore an area broadly rather than targeting a specific task.
+The 70 skills are organized into 15 domains. Use this index when you want to explore an area broadly rather than targeting a specific task.
 
 ---
 
@@ -131,7 +134,7 @@ Classic GoF and modern patterns for structuring objects and interactions.
 
 ---
 
-#### Code Review (17 skills)
+#### Code Review (20 skills)
 
 Structured review processes and checklists for PRs and design documents.
 
@@ -154,6 +157,9 @@ Structured review processes and checklists for PRs and design documents.
 | `rust-review-patterns` | Ownership and borrowing, unsafe blocks, lifetime annotations |
 | `java-review-patterns` | Null safety, Stream API misuse, concurrency, generics |
 | `cpp-review-patterns` | RAII, undefined behavior, templates, move semantics |
+| `pr-review-workflow` | Capstone skill — sequences all review skills into one time-boxed PR workflow |
+| `review-metrics` | Defect escape rate, false positive rate, cycle time, and coverage metrics |
+| `review-walkthroughs` | End-to-end diagnostic walkthroughs across security, performance, and concurrency |
 
 ---
 
@@ -374,7 +380,7 @@ Use `multi-tenancy-patterns` as the primary skill. Supplement with `auth-authz-p
 |--------|-------------|
 | Refactoring | 10 |
 | Design Patterns | 3 |
-| Code Review | 17 |
+| Code Review | 20 |
 | Anti-Patterns and Performance | 2 |
 | Cross-Cutting Concerns | 5 |
 | Security and Auth | 3 |
@@ -387,9 +393,9 @@ Use `multi-tenancy-patterns` as the primary skill. Supplement with `auth-authz-p
 | AI & ML Integration | 1 |
 | Developer Experience | 1 |
 | File & Media Processing | 1 |
-| **Total** | **67** |
+| **Total** | **70** |
 
-Note: Some skills appear in multiple categories because they cross domain boundaries (e.g., `anti-patterns-catalog` is listed under both Code Review and Anti-Patterns). The unique skill count in the library is 66.
+Note: Some skills appear in multiple categories because they cross domain boundaries (e.g., `anti-patterns-catalog` is listed under both Code Review and Anti-Patterns). The unique skill count in the library is 69.
 
 ---
 

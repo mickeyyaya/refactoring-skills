@@ -1,8 +1,8 @@
 # Refactoring & Design Pattern Skills for Claude Code
 
-A comprehensive library of **67 skills** for [Claude Code](https://claude.ai/claude-code) covering refactoring, design patterns, code review, software engineering best practices, microservices, distributed systems, DevOps, security, AI/ML integration, and more across **6 programming languages**. Built from [refactoring.guru](https://refactoring.guru/), Gang of Four patterns, OWASP, and industry best practices.
+A comprehensive library of **70 skills** for [Claude Code](https://claude.ai/claude-code) covering refactoring, design patterns, code review, software engineering best practices, microservices, distributed systems, DevOps, security, AI/ML integration, and more across **6 programming languages**. Built from [refactoring.guru](https://refactoring.guru/), Gang of Four patterns, OWASP, and industry best practices.
 
-## Skills Library (67 skills, ~25,000+ lines)
+## Skills Library (70 skills, ~25,000+ lines)
 
 ### Refactoring Techniques (8 skills)
 | Skill | Coverage |
@@ -23,7 +23,7 @@ A comprehensive library of **67 skills** for [Claude Code](https://claude.ai/cla
 | `design-patterns-behavioral` | 11 GoF patterns: Strategy, Observer, Command, State, etc. |
 | `architectural-patterns` | 10 patterns: MVC, Clean Architecture, Hexagonal, CQRS, etc. |
 
-### Code Review (11 skills)
+### Code Review (14 skills)
 | Skill | Coverage |
 |-------|----------|
 | `review-cheat-sheet` | Master reference — 3-phase review with cross-refs to all skills |
@@ -37,6 +37,9 @@ A comprehensive library of **67 skills** for [Claude Code](https://claude.ai/cla
 | `review-efficiency-patterns` | Risk-based ordering, time-boxing, when to stop |
 | `review-automation-patterns` | Static analysis integration, CI gate configuration |
 | `cross-language-review-heuristics` | Universal review signals across all languages |
+| `pr-review-workflow` | Capstone orchestration skill — sequences all review skills into one time-boxed PR workflow |
+| `review-metrics` | Defect escape rate, false positive rate, cycle time, comment resolution, coverage metrics |
+| `review-walkthroughs` | End-to-end diagnostic walkthroughs: security, performance, AI-generated code, concurrency |
 
 ### Language-Specific Review Guides (6 skills)
 | Skill | Coverage |
